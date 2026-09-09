@@ -70,6 +70,7 @@ export function decide({ inbox, config = {}, now = new Date(), force = false, ha
     // message this machine has already replied to is local knowledge, exactly
     // like which task it has already handed over.
     const chat = collectChat(inbox).filter((item) => handled(chatKey(item)) === null);
+
     const reviews = inbox.review_requests ?? [];
     const tasks = inbox.assigned_tasks ?? [];
 
@@ -101,10 +102,24 @@ export function decide({ inbox, config = {}, now = new Date(), force = false, ha
         // The whole point of the default. Reported, listed, never started.
         const because = mode === 'pull' ? 'mode is pull — you decide when to run' : 'mode is notify — tasks never auto-execute';
 
-        hold(decision.tasks, tasks, because);
-        hold(decision.reviews, reviews, because);
+        // Only what has not been said already, and only here.
+        //
+        // Exactly the reasoning applied to chat above, which tasks never got: an
+        // assigned task stays in the inbox until somebody finishes it, so a cron
+        // in `notify` woke the runtime with the same TASK-42 every pass until a
+        // human closed it — spend that looks like diligence and is a loop.
+        //
+        // Filtered in this branch rather than at the top, because `auto` decides
+        // what to *execute* and must not inherit silence from a pass that merely
+        // mentioned the work. Keyed by fingerprint, so a task that moves, is
+        // commented on or is accepted has something new to say and says it.
+        const unsaid = tasks.filter((task) => handled(task.id) !== toldKey(task));
+        const unanswered = reviews.filter((review) => handled(reviewKey(review)) === null);
 
-        return finish(decision, force, tasks, reviews);
+        hold(decision.tasks, unsaid, because);
+        hold(decision.reviews, unanswered, because);
+
+        return finish(decision, force, unsaid, unanswered);
     }
 
     if (automation.enabled !== true) {
@@ -369,6 +384,22 @@ function taskRefusal(task, filters, inbox, handled) {
  */
 export function chatKey(item) {
     return `chat:${item.kind}:${item.id}`;
+}
+
+/**
+ * What the ledger stores when a task was only *reported*, not handed over.
+ *
+ * Prefixed so it cannot be mistaken for a handover: `auto` compares against the
+ * bare fingerprint, so a task this machine merely mentioned is still executed
+ * the day somebody turns automation on.
+ */
+export function toldKey(task) {
+    return `told:${fingerprintOf(task)}`;
+}
+
+/** A review's identity in the ledger. Its own namespace, so ids cannot collide. */
+export function reviewKey(review) {
+    return `review:${review?.id ?? ''}`;
 }
 
 export function fingerprintOf(task) {

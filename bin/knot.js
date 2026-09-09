@@ -41,6 +41,7 @@ import {
     status,
     taskAccept,
     taskComment,
+    taskType,
     taskVerify,
 } from '../src/cli.js';
 import {
@@ -87,6 +88,7 @@ const GROUPS = {
         verify: taskVerify,
         accept: taskAccept,
         comment: taskComment,
+        type: taskType,
     },
 };
 
@@ -126,6 +128,8 @@ function usage() {
     knot task verify <id>         Is this task real, mine, and actionable now?
     knot task accept <id>         Verify it, then say yes to it
     knot task comment <id> <text> Say something on the task
+    knot task type <id> <type>    File it as what it is  (task, feature, bug,
+                                  chore, epic, idea)
     knot check                    One pass: heartbeat, inbox, hand over what the
                                   mode allows, report back
     knot run                      The same, waiting on the server between passes
@@ -151,6 +155,9 @@ function usage() {
     --interval <s>                Seconds between passes in \`run\` (default 5)
     --json                        Machine-readable output (inbox check, task verify)
     --run                         Override the mode for this one pass
+    --handover                    For a scheduler: print the prompt for another
+                                  runner, remember the pass so it never repeats,
+                                  and exit 1 when there is nothing new
 
   What a pass may do — \`mode\` in knot.yml, default \`notify\`
     off       Nothing is handed to the runtime. Presence only.

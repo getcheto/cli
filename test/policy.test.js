@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { chatKey, decide, fingerprintOf } from '../src/policy.js';
+import { chatKey, decide, fingerprintOf, reviewKey, toldKey } from '../src/policy.js';
 import { buildPrompt } from '../src/prompt.js';
 import { AGENT, AUTO_CONFIG, MIDDAY, RUNTIME, THREE_AM, inbox, mention, task } from './fixtures.js';
 
@@ -84,6 +84,48 @@ describe('scenario 2 — chat: @indexer mentions @builder', () => {
 
         assert.equal(again.wake, false);
         assert.equal(again.chat.items.length, 0);
+    });
+
+    it('does not report the same task twice', () => {
+        // The same reasoning as the mention above, which tasks never had. An
+        // assigned task stays in the inbox until somebody finishes it, so a
+        // cron in `notify` woke the runtime with TASK-42 every pass, forever.
+        const one = task();
+        const payload = inbox({ tasks: [one] });
+
+        const first = decide({ inbox: payload, config: { runtime: RUNTIME } });
+
+        assert.equal(first.tasks.held.length, 1);
+
+        const ledger = { [String(one.id)]: toldKey(one) };
+        const again = decide({ inbox: payload, config: { runtime: RUNTIME }, handled: (id) => ledger[id] ?? null });
+
+        assert.equal(again.tasks.held.length, 0);
+    });
+
+    it('reports a task again once it has changed', () => {
+        // Going quiet about work is not the goal; not repeating a sentence
+        // nobody needed twice is. A task that moves has something new to say.
+        const one = task();
+        const ledger = { [String(one.id)]: toldKey(one) };
+        const handled = (id) => ledger[id] ?? null;
+
+        const moved = { ...one, status: { value: 'in_progress' }, updated_at: '2026-09-09T12:00:00+00:00' };
+        const decision = decide({ inbox: inbox({ tasks: [moved] }), config: { runtime: RUNTIME }, handled });
+
+        assert.equal(decision.tasks.held.length, 1);
+    });
+
+    it('still executes a task it had only reported, once automation is on', () => {
+        // `toldKey` is prefixed for exactly this: switching to auto must not
+        // inherit "already handled" from a pass that only mentioned the work.
+        const one = task();
+        const ledger = { [String(one.id)]: toldKey(one) };
+        const handled = (id) => ledger[id] ?? null;
+
+        const decision = decide({ inbox: inbox({ tasks: [one] }), config: AUTO_CONFIG, now: MIDDAY, handled });
+
+        assert.equal(decision.tasks.eligible.length, 1);
     });
 
     it('counts a channel mention once, not twice', () => {

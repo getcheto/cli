@@ -25,7 +25,7 @@ import {
 } from './credentials.js';
 import { loadLedger, saveLedger } from './ledger.js';
 import { describeSchedule } from './schedule.js';
-import { DEFAULT_MODE, chatKey, decide, fingerprintOf } from './policy.js';
+import { DEFAULT_MODE, chatKey, decide, fingerprintOf, reviewKey, toldKey } from './policy.js';
 import { buildPrompt, idempotencyKeyFor } from './prompt.js';
 
 const log = (...args) => console.log(...args);
@@ -387,6 +387,48 @@ export async function taskComment(args = []) {
         await api.comment(id, body, `knot-comment-${id}-${Date.now()}`);
 
         log(`Commented on task ${id}.`);
+
+        return 0;
+    } catch (error) {
+        warn(error instanceof KnotError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
+const TASK_TYPES = ['task', 'feature', 'bug', 'chore', 'epic', 'idea'];
+
+/**
+ * `knot task type <id> <type>` — file it as what it actually is.
+ *
+ * The row somebody dropped on the board is often not a job: it is a thought, a
+ * duplicate, or a bug wearing a feature's clothes. Answering that is the useful
+ * half of triage and it is the half an agent can do safely, because saying what
+ * something *is* decides nothing about who does it or whether it is done.
+ */
+export async function taskType(args = []) {
+    const [id, type] = args.filter((argument) => !argument.startsWith('--'));
+
+    if (!id || !TASK_TYPES.includes(String(type))) {
+        warn(`Usage: knot task type <task-id> <${TASK_TYPES.join('|')}>`);
+
+        return 1;
+    }
+
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    const api = new KnotApi({ url: session.url, token: session.token });
+
+    try {
+        // Keyed by what the change is, not by the clock: two passes deciding the
+        // same thing must be one write, which is the whole point of a retry.
+        await api.setType(id, type, `knot-type-${id}-${type}`);
+
+        log(`Task ${id} is now ${type === 'idea' || type === 'epic' ? 'an' : 'a'} ${type}.`);
 
         return 0;
     } catch (error) {
@@ -867,12 +909,18 @@ export async function check(args = [], state = {}) {
 
         state.cursor = inbox.cursor ?? null;
 
+        // `--handover` follows the convention a cron expects: exit 1 means "there
+        // was nothing new, do not wake the model". Without it a scheduler either
+        // spends tokens on every empty pass or has to parse this output to find
+        // out it was empty.
+        const handover = args.includes('--handover');
+
         if (!inbox.summary.has_work) {
             if (!quiet) {
                 log('Nothing waiting.');
             }
 
-            return 0;
+            return handover ? 1 : 0;
         }
 
         const ledger = await loadLedger(session.url, session.handle);
@@ -884,6 +932,19 @@ export async function check(args = [], state = {}) {
             force: args.includes('--run'),
             handled: (id) => ledger[String(id)] ?? null,
         });
+
+        // Everything the server is holding was already said by this machine on an
+        // earlier pass. Not silence about the work — silence about repeating it.
+        const fresh =
+            decision.chat.items.length + decision.tasks.held.length + decision.tasks.eligible.length + decision.reviews.held.length + decision.reviews.eligible.length;
+
+        if (handover && fresh === 0) {
+            if (!quiet) {
+                log('Nothing new since the last pass.');
+            }
+
+            return 1;
+        }
 
         log(
             `Work: ${inbox.summary.review_requests} reviews, ` +
@@ -913,6 +974,17 @@ export async function check(args = [], state = {}) {
                 log('  To act on one:  knot task verify <id>  then  knot task accept <id>');
             }
 
+            // The held list above is the whole output of a `notify` pass, and
+            // under `--handover` it is what the scheduler feeds its model. So it
+            // counts as having been said, exactly like a prompt does — otherwise
+            // the one path that produces the most passes is the one that never
+            // remembers them.
+            if (handover) {
+                recordPass(ledger, decision);
+                await saveLedger(session.url, session.handle, ledger);
+                await api.markNotificationsRead();
+            }
+
             return 0;
         }
 
@@ -934,7 +1006,22 @@ export async function check(args = [], state = {}) {
             log('');
             log(prompt);
             log('');
-            warn('No runtime configured in knot.yml — nothing was run and nothing was accepted.');
+
+            // `--handover` is for the arrangement where something else runs the
+            // model — a cron that pipes this into an agent, say. Printing is the
+            // delivery there, so the pass has to be remembered or the next one
+            // prints the same thing and the agent is woken about TASK-42 forever.
+            //
+            // Without the flag this stays a dry run, which is the whole point of
+            // being able to look at the prompt before pointing a model at it.
+            if (handover) {
+                recordPass(ledger, decision);
+                await saveLedger(session.url, session.handle, ledger);
+                await api.markNotificationsRead();
+                warn('No runtime here — the prompt above was handed over, and this pass will not repeat.');
+            } else {
+                warn('No runtime configured in knot.yml — nothing was run and nothing was accepted.');
+            }
 
             return 0;
         }
@@ -981,13 +1068,7 @@ export async function check(args = [], state = {}) {
         // Only what was actually handed over, and only after it was reported.
         // A task recorded as handled that the runtime never saw is a task that
         // silently never gets done.
-        for (const task of decision.tasks.eligible) {
-            ledger[String(task.id)] = fingerprintOf(task);
-        }
-
-        for (const item of decision.chat.allowed ? decision.chat.items : []) {
-            ledger[chatKey(item)] = 'answered';
-        }
+        recordPass(ledger, decision);
 
         await saveLedger(session.url, session.handle, ledger);
 
@@ -1127,6 +1208,39 @@ export async function logout(args = []) {
  * rather than in a room. Falls back to nothing: an agent that produced no
  * output has nothing to say, and a "done" with no content is noise.
  */
+/**
+ * What this pass counts as having said, so it is not said again.
+ *
+ * Two kinds, and the difference matters the day somebody turns automation on:
+ * a task actually handed to a runtime is stored under its bare fingerprint,
+ * which is what `auto` compares against; a task merely reported is stored under
+ * `toldKey`, which nothing compares against — so it stops the repetition
+ * without ever looking like work already done.
+ */
+function recordPass(ledger, decision) {
+    for (const task of decision.tasks.eligible) {
+        ledger[String(task.id)] = fingerprintOf(task);
+    }
+
+    // Held work is still work this machine has now told somebody about, and an
+    // assigned task does not leave the inbox until it is finished.
+    for (const { item } of decision.tasks.held) {
+        ledger[String(item.id)] = toldKey(item);
+    }
+
+    for (const { item } of decision.reviews.held) {
+        ledger[reviewKey(item)] = 'told';
+    }
+
+    for (const review of decision.reviews.eligible) {
+        ledger[reviewKey(review)] = 'told';
+    }
+
+    for (const item of decision.chat.allowed ? decision.chat.items : []) {
+        ledger[chatKey(item)] = 'answered';
+    }
+}
+
 async function report(api, inbox, decision, output) {
     if (!output) {
         return;

@@ -142,6 +142,16 @@ export class KnotApi {
     }
 
     /**
+     * Say what a thing *is*. Not what should happen to it.
+     *
+     * The describing half of triage, which an agent may do; deciding it is
+     * finished stays a 403 no permission grants.
+     */
+    setType(taskId, type, idempotencyKey) {
+        return this.request(`/tasks/${taskId}`, { method: 'PATCH', body: { type }, idempotencyKey });
+    }
+
+    /**
      * Everything older than the bounded read.
      *
      * The counterpart to `context`: an agent is handed a few compacts and a
