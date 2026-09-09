@@ -1,0 +1,23 @@
+{
+    "name": "@knot/bridge",
+    "version": "0.1.0",
+    "description": "Connects a machine's coding agent to a Knot workspace.",
+    "type": "module",
+    "bin": {
+        "knot": "./bin/knot.js"
+    },
+    "files": [
+        "bin",
+        "src",
+        "README.md",
+        "knot.example.yml"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "knot": "node bin/knot.js",
+        "test": "node --test \"test/*.test.js\""
+    },
+    "license": "MIT"
+}

@@ -1,0 +1,298 @@
+/**
+ * The Knot API client.
+ *
+ * Deliberately thin: it adds a bearer header, parses JSON, and turns a failure
+ * into an error a human can read. Everything else — what to call, in what
+ * order — is the caller's business.
+ *
+ * `fetch` is built into Node 20, so this file has no dependencies. That is not
+ * frugality for its own sake: a bridge somebody has to `npm install` before
+ * their agent can talk to Knot is a bridge with an install step, and the whole
+ * point is that Knot does not require one.
+ */
+
+export class KnotError extends Error {
+    constructor(message, { status = 0, body = null } = {}) {
+        super(message);
+        this.name = 'KnotError';
+        this.status = status;
+        this.body = body;
+    }
+
+    /**
+     * Whether trying again could plausibly work.
+     *
+     * 401 and 403 are decisions, not accidents: a revoked credential does not
+     * become valid because you asked twice, and retrying a refusal is how a
+     * loop turns a mistake into a rate-limit ban.
+     */
+    get retryable() {
+        return this.status === 0 || this.status === 429 || this.status >= 500;
+    }
+}
+
+export class KnotApi {
+    constructor({ url, token, fetchImpl = globalThis.fetch }) {
+        this.base = `${String(url).replace(/\/+$/, '')}/api/v1/agent`;
+        this.token = token;
+        this.fetch = fetchImpl;
+    }
+
+    async request(path, { method = 'GET', body, form, idempotencyKey, timeoutMs = 30_000 } = {}) {
+        const headers = { Accept: 'application/json' };
+
+        if (this.token) {
+            headers.Authorization = `Bearer ${this.token}`;
+        }
+
+        if (body !== undefined) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        // A form gets no Content-Type from us on purpose: fetch has to write
+        // it, because only fetch knows the multipart boundary it generated.
+
+        // Sent on every write the bridge retries. Without it, a response lost
+        // on the way back turns one comment into two.
+        if (idempotencyKey) {
+            headers['Idempotency-Key'] = idempotencyKey;
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+        let response;
+
+        try {
+            response = await this.fetch(`${this.base}${path}`, {
+                method,
+                headers,
+                body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
+                signal: controller.signal,
+            });
+        } catch (cause) {
+            throw new KnotError(`Could not reach Knot at ${this.base}: ${cause.message}`, { status: 0 });
+        } finally {
+            clearTimeout(timer);
+        }
+
+        const text = await response.text();
+        let parsed = null;
+
+        try {
+            parsed = text ? JSON.parse(text) : null;
+        } catch {
+            // A non-JSON body from an API means something upstream answered
+            // instead of Knot — a proxy error page, usually. Say so rather
+            // than reporting a parse failure.
+            throw new KnotError(
+                `Knot returned ${response.status} with a body that is not JSON. Is ${this.base} really a Knot API?`,
+                { status: response.status },
+            );
+        }
+
+        if (!response.ok) {
+            throw new KnotError(parsed?.message ?? `Knot returned ${response.status}`, {
+                status: response.status,
+                body: parsed,
+            });
+        }
+
+        return parsed;
+    }
+
+    me() {
+        return this.request('/me');
+    }
+
+    task(id) {
+        return this.request(`/tasks/${id}`);
+    }
+
+    /** Say yes to work already assigned to you. Not the same call as claim. */
+    accept(taskId, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/accept`, { method: 'POST', idempotencyKey });
+    }
+
+    claim(taskId, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/claim`, { method: 'POST', idempotencyKey });
+    }
+
+    heartbeat(status) {
+        return this.request('/heartbeat', { method: 'POST', body: status ? { status } : {} });
+    }
+
+    /**
+     * The inbox, optionally waiting for something to arrive.
+     *
+     * `waitSeconds` holds the connection open server-side until there is work
+     * or the wait runs out — so a loop answers the moment a task is assigned
+     * instead of on its next tick, over plain HTTP.
+     */
+    inbox({ waitSeconds = 0 } = {}) {
+        const query = waitSeconds > 0 ? `?wait=${waitSeconds}` : '';
+
+        // The request timeout has to outlast the server's wait, or the client
+        // aborts a connection that was about to answer.
+        return this.request(`/inbox${query}`, { timeoutMs: (waitSeconds + 15) * 1000 });
+    }
+
+    comment(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/comments`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    /**
+     * Everything older than the bounded read.
+     *
+     * The counterpart to `context`: an agent is handed a few compacts and a
+     * handful of messages, and reaches past them with this rather than by
+     * asking for a bigger window.
+     */
+    search(query, { kinds = [], limit = 0 } = {}) {
+        const params = new URLSearchParams({ q: query });
+
+        kinds.forEach((kind) => params.append('kind[]', kind));
+
+        if (limit > 0) {
+            params.set('limit', String(limit));
+        }
+
+        return this.request(`/search?${params.toString()}`);
+    }
+
+    // ── What the workspace knows ───────────────────────
+
+    memories({ key = null, q = null } = {}) {
+        const params = new URLSearchParams();
+
+        if (key) params.set('key', key);
+        if (q) params.set('q', q);
+
+        return this.request(`/memory${params.size > 0 ? `?${params.toString()}` : ''}`);
+    }
+
+    writeMemory(body, idempotencyKey) {
+        return this.request('/memory', { method: 'POST', body, idempotencyKey });
+    }
+
+    forgetMemory(id) {
+        return this.request(`/memory/${id}`, { method: 'DELETE' });
+    }
+
+    // ── Channels and folding their history ─────────────
+
+    channels() {
+        return this.request('/channels');
+    }
+
+    /** The bounded read: a few compacts and the messages after them. */
+    context(channel, messages) {
+        return this.request(`/channels/${channel}/context${messages ? `?messages=${messages}` : ''}`);
+    }
+
+    /** Everything a fold would have to cover. Deliberately not bounded. */
+    pendingCompact(channel) {
+        return this.request(`/channels/${channel}/compacts/pending`);
+    }
+
+    postCompact(channel, body, idempotencyKey) {
+        return this.request(`/channels/${channel}/compacts`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    post(channel, body, idempotencyKey) {
+        return this.request(`/channels/${channel}/messages`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    markNotificationsRead(ids) {
+        return this.request('/notifications/read', { method: 'POST', body: ids ? { ids } : {} });
+    }
+
+    static pair(url, code, body = {}, fetchImpl = globalThis.fetch) {
+        const api = new KnotApi({ url, token: null, fetchImpl });
+
+        return api.request('/pair', { method: 'POST', body: { code, ...body } });
+    }
+}
+
+/**
+ * The human half.
+ *
+ * A separate client, on a separate prefix, holding a separate token — the same
+ * separation the server keeps between its two guards. Sharing one client would
+ * make it one refactor away from sending an agent credential to a route that
+ * mints principals.
+ */
+export class KnotUserApi {
+    constructor({ url, token, fetchImpl = globalThis.fetch }) {
+        this.base = `${String(url).replace(/\/+$/, '')}/api/v1/cli`;
+        this.token = token;
+        this.fetch = fetchImpl;
+    }
+
+    request(path, options = {}) {
+        // Same transport, different prefix. KnotApi's request() is written
+        // against `this.base`, so borrowing it here is exact rather than
+        // approximate.
+        return KnotApi.prototype.request.call(this, path, options);
+    }
+
+    me() {
+        return this.request('/me');
+    }
+
+    agents() {
+        return this.request('/agents');
+    }
+
+    createAgent(body) {
+        return this.request('/agents', { method: 'POST', body });
+    }
+
+    updateAgent(agentId, body) {
+        return this.request(`/agents/${agentId}`, { method: 'PATCH', body });
+    }
+
+    /** A picture, as multipart. The server never fetches a URL we hand it. */
+    uploadAvatar(agentId, form) {
+        return this.request(`/agents/${agentId}/avatar`, { method: 'POST', form });
+    }
+
+    join(agentId, body) {
+        return this.request(`/agents/${agentId}/memberships`, { method: 'POST', body });
+    }
+
+    pair(membershipId) {
+        return this.request(`/memberships/${membershipId}/pair`, { method: 'POST', body: {} });
+    }
+
+    disconnect(connectionId) {
+        return this.request(`/connections/${connectionId}`, { method: 'DELETE' });
+    }
+
+    /** Begin `knot login`. Unauthenticated: this is how a token is obtained. */
+    static startLogin(url, machine, fetchImpl = globalThis.fetch) {
+        const api = new KnotUserApi({ url, token: null, fetchImpl });
+
+        return api.request('/device', { method: 'POST', body: { machine } });
+    }
+
+    /**
+     * Ask whether the person has approved yet.
+     *
+     * 428 is "not yet" and is not an error — the caller keeps waiting. Anything
+     * else is a decision, and decisions do not change by asking again.
+     */
+    static async collect(url, deviceCode, fetchImpl = globalThis.fetch) {
+        const api = new KnotUserApi({ url, token: null, fetchImpl });
+
+        try {
+            return await api.request('/device/token', { method: 'POST', body: { device_code: deviceCode } });
+        } catch (error) {
+            if (error instanceof KnotError && error.status === 428) {
+                return null;
+            }
+
+            throw error;
+        }
+    }
+}
