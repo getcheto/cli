@@ -286,6 +286,7 @@ export async function agentUpdate(args = []) {
     if (!agentId) {
         warn('Usage: knot agent update <agent-id> [--name "Rocky"] [--description "…"]');
         warn('                                    [--workspace otro-espacio --handle rocky --charter "…"]');
+        warn('                                    [--area <uuid|id>]  the board its work lands on there');
         warn('Ids come from: knot agent list');
 
         return 1;
@@ -297,10 +298,15 @@ export async function agentUpdate(args = []) {
         workspace: flag(args, '--workspace') ?? undefined,
         handle: flag(args, '--handle') ?? undefined,
         charter: flag(args, '--charter') ?? undefined,
+
+        // The board its work lands on in that workspace. `--area none` clears
+        // it, because "no board of its own" is a real answer and an absent
+        // flag has to keep meaning "leave it alone".
+        area: areaFlag(args),
     };
 
     if (Object.values(changes).every((value) => value === undefined)) {
-        warn('Nothing to change. Pass at least one of --name, --description, --handle, --charter.');
+        warn('Nothing to change. Pass at least one of --name, --description, --handle, --charter, --area.');
 
         return 1;
     }
@@ -581,4 +587,21 @@ function ask(question) {
         process.stdin.setEncoding('utf8');
         process.stdin.once('data', (data) => resolve(data.trim()));
     });
+}
+
+/**
+ * `--area <uuid|id>`, or `--area none` to clear it.
+ *
+ * Three states, and an optional string can only carry two — so "none" is spelled
+ * out rather than inferred from an empty value, which a shell produces by
+ * accident more often than on purpose.
+ */
+function areaFlag(args) {
+    const value = flag(args, '--area');
+
+    if (value === null) {
+        return undefined;
+    }
+
+    return ['none', 'null', ''].includes(String(value).trim().toLowerCase()) ? null : String(value).trim();
 }

@@ -27,6 +27,7 @@
  */
 
 import {
+    areas,
     check,
     compact,
     connect,
@@ -41,6 +42,7 @@ import {
     status,
     taskAccept,
     taskComment,
+    taskCreate,
     taskType,
     taskVerify,
 } from '../src/cli.js';
@@ -85,6 +87,7 @@ const GROUPS = {
         forget: memoryForget,
     },
     task: {
+        create: taskCreate,
         verify: taskVerify,
         accept: taskAccept,
         comment: taskComment,
@@ -96,6 +99,7 @@ const COMMANDS = {
     login,
     whoami,
     connect,
+    areas,
     status,
     check,
     compact,
@@ -125,6 +129,10 @@ function usage() {
   The agent on this machine
     knot connect <code>           Redeem a pairing code
     knot inbox check              Is there work? Prints nothing when there is none
+    knot areas                    The boards here, and which one is this agent's
+    knot task create "<title>"    Write something down  [--area <name|slug|id>]
+                                  [--column "Name"] [--type] [--priority] [--due]
+                                  [--tag] [--description]
     knot task verify <id>         Is this task real, mine, and actionable now?
     knot task accept <id>         Verify it, then say yes to it
     knot task comment <id> <text> Say something on the task
