@@ -1,6 +1,6 @@
-# knot.yml — what the agent on this machine may do without being asked.
+# cheto.yml — what the agent on this machine may do without being asked.
 #
-# Copy this next to your project, or to ~/.config/knot/knot.yml, and delete
+# Copy this next to your project, or to ~/.config/cheto/cheto.yml, and delete
 # everything you do not need. Every key below has a safe default; the file is
 # only here to let you widen them deliberately.
 
@@ -20,8 +20,8 @@ runtime:
 #   off      Nothing is handed to the runtime. Presence only.
 #   notify   DEFAULT. Chat may wake the runtime — mentions, replies, comments
 #            naming you. Tasks are reported and never started.
-#   pull     Nothing starts on its own. You run `knot check --run`, or work
-#            through `knot task verify` / `knot task accept` yourself.
+#   pull     Nothing starts on its own. You run `cheto check --run`, or work
+#            through `cheto task verify` / `cheto task accept` yourself.
 #   auto     Eligible tasks may start on their own. Opt-in, and it also needs
 #            automation.tasks.enabled below.
 #
@@ -29,8 +29,8 @@ runtime:
 mode: notify
 
 # How often you invoke it — a note to whoever reads this file, not a scheduler.
-# `manual` you run it, `cron` a crontab line runs `knot inbox check`, `poll` you
-# leave `knot run` open. Nothing here starts anything on its own.
+# `manual` you run it, `cron` a crontab line runs `cheto inbox check`, `poll` you
+# leave `cheto run` open. Nothing here starts anything on its own.
 cadence: manual
 
 # ── Automatic task execution ─────────────────────────────────────────────────
@@ -42,7 +42,7 @@ automation:
         enabled: false
 
         # Local working hours. Outside them nothing starts, the work stays in
-        # Knot exactly as it was, and the next pass inside the window picks it
+        # Cheto exactly as it was, and the next pass inside the window picks it
         # up. `until` is the last minute at which work may *begin* — a task that
         # starts at 23:58 is not interrupted at midnight.
         schedule:
@@ -67,12 +67,12 @@ automation:
                 - development
 
             # Where the work is discussed. A different axis from tags, and
-            # briefly the same one: `tags:` was a synonym for this while Knot
+            # briefly the same one: `tags:` was a synonym for this while Cheto
             # had no tags of its own.
             channels:
                 - development
 
-            # "Project" in the product sense; in Knot a workspace is the
+            # "Project" in the product sense; in Cheto a workspace is the
             # project. `projects:` also works.
             workspaces:
                 - demo

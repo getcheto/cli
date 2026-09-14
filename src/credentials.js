@@ -22,8 +22,8 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 
-const SERVICE = 'knot-bridge';
-const CONFIG_DIR = join(homedir(), '.config', 'knot');
+const SERVICE = 'cheto-bridge';
+const CONFIG_DIR = join(homedir(), '.config', 'cheto');
 const FALLBACK_FILE = join(CONFIG_DIR, 'credentials.json');
 
 async function has(binary) {
@@ -80,7 +80,7 @@ const secretTool = {
         await new Promise((resolve, reject) => {
             const child = execFile(
                 'secret-tool',
-                ['store', '--label', `Knot (${account})`, 'service', SERVICE, 'account', account],
+                ['store', '--label', `Cheto (${account})`, 'service', SERVICE, 'account', account],
                 (error) => (error ? reject(error) : resolve()),
             );
             child.stdin.write(secret);
@@ -98,7 +98,7 @@ const secretTool = {
 
 /** Anywhere else: a file only this user can read. */
 const fileStore = {
-    name: 'file (~/.config/knot/credentials.json, mode 600)',
+    name: 'file (~/.config/cheto/credentials.json, mode 600)',
     available: async () => true,
     async read(account) {
         try {
@@ -142,13 +142,13 @@ const fileStore = {
 /**
  * Which store, and the one way to override it.
  *
- * `KNOT_SECRET_STORE=file` forces the file store. Two real reasons: a container
+ * `CHETO_SECRET_STORE=file` forces the file store. Two real reasons: a container
  * with no keychain daemon, where the probe succeeds and the write then hangs;
  * and the tests, which must never reach the login keychain of whoever is
  * running them.
  */
 async function pickStore() {
-    if (process.env.KNOT_SECRET_STORE === 'file') {
+    if (process.env.CHETO_SECRET_STORE === 'file') {
         return fileStore;
     }
 
@@ -162,9 +162,9 @@ async function pickStore() {
 }
 
 /**
- * The Knot half of every key.
+ * The Cheto half of every key.
  *
- * One machine holds credentials for several installations — a staging Knot and
+ * One machine holds credentials for several installations — a staging Cheto and
  * a real one, most obviously — and neither may overwrite the other.
  */
 function accountFor(url) {
@@ -172,12 +172,12 @@ function accountFor(url) {
 }
 
 /**
- * One agent's key, on one Knot.
+ * One agent's key, on one Cheto.
  *
  * The handle is in the key because a machine runs **several** agents: three
- * roles in one repo, or one identity across three projects. `knot.yml` has been
+ * roles in one repo, or one identity across three projects. `cheto.yml` has been
  * able to describe that since the config grew an `agents:` list, and until now
- * the credential store could not hold it — the second `knot connect` silently
+ * the credential store could not hold it — the second `cheto connect` silently
  * overwrote the first, and the agent you connected yesterday simply stopped
  * existing on this machine.
  *
@@ -192,9 +192,9 @@ function agentAccountFor(url, handle) {
  * The human credential's account key.
  *
  * A `#user` suffix on the same URL, so one machine holds both an agent
- * credential and a human one for the same Knot without either overwriting the
+ * credential and a human one for the same Cheto without either overwriting the
  * other. They are different principals and they must be storable side by side —
- * `knot connect` arms a runtime, `knot login` authorizes the person who runs it.
+ * `cheto connect` arms a runtime, `cheto login` authorizes the person who runs it.
  */
 function userAccountFor(url) {
     return `${accountFor(url)}#user`;
@@ -249,10 +249,10 @@ export async function storeName() {
 const SESSION_FILE = join(CONFIG_DIR, 'session.json');
 
 /**
- * The Knots and agents this machine knows about. Only the tokens are secret.
+ * The Chetos and agents this machine knows about. Only the tokens are secret.
  *
  *     {
- *       "url": "https://knot.example",     // the last one touched
+ *       "url": "https://cheto.example",     // the last one touched
  *       "user": "Una persona",              // who is signed in, if anybody
  *       "agents": [
  *         { "url": "…", "handle": "builder", "workspace": "Demo", … }
@@ -261,7 +261,7 @@ const SESSION_FILE = join(CONFIG_DIR, 'session.json');
  *
  * A list rather than a map keyed by handle: this file is meant to be openable,
  * and a list of objects reads as a list of agents. Order is connection order,
- * which is also the order `knot status` prints them in.
+ * which is also the order `cheto status` prints them in.
  */
 async function readSessionFile() {
     try {
@@ -276,7 +276,7 @@ async function writeSessionFile(contents) {
     await writeFile(SESSION_FILE, JSON.stringify(contents, null, 2), { mode: 0o600 });
 }
 
-/** The URL and the person, in plain sight. Used by `knot login`. */
+/** The URL and the person, in plain sight. Used by `cheto login`. */
 export async function saveSession(session) {
     await writeSessionFile({ ...((await readSessionFile()) ?? {}), ...session });
 }
@@ -310,7 +310,7 @@ function sameAgent(a, b) {
 /**
  * Every agent connected on this machine, with its credential.
  *
- * An entry whose credential has gone — revoked in Knot, or removed from the
+ * An entry whose credential has gone — revoked in Cheto, or removed from the
  * keychain by hand — is dropped rather than reported as connected. The file is
  * a note about what happened; the credential is what is true.
  */
@@ -406,7 +406,7 @@ export async function migrateLegacySession() {
  * Three ways to decide, in order, and a refusal rather than a guess:
  *
  *   1. `--agent <handle>`, which is a person saying so.
- *   2. The first entry in `knot.yml`, which is this checkout saying so.
+ *   2. The first entry in `cheto.yml`, which is this checkout saying so.
  *   3. The only one connected, when there is only one.
  *
  * When none of those settles it the answer is `ambiguous`, never "the first

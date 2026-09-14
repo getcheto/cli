@@ -12,10 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
 
-const HOME = mkdtempSync(join(tmpdir(), 'knot-credentials-'));
+const HOME = mkdtempSync(join(tmpdir(), 'cheto-credentials-'));
 
 process.env.HOME = HOME;
-process.env.KNOT_SECRET_STORE = 'file';
+process.env.CHETO_SECRET_STORE = 'file';
 
 // After the environment, because the module resolves its paths at import.
 const {
@@ -27,11 +27,11 @@ const {
     selectAgentSession,
 } = await import('../src/credentials.js');
 
-const CONFIG_DIR = join(HOME, '.config', 'knot');
+const CONFIG_DIR = join(HOME, '.config', 'cheto');
 const SESSION = join(CONFIG_DIR, 'session.json');
 const SECRETS = join(CONFIG_DIR, 'credentials.json');
 
-const KNOT = 'https://knot.example';
+const CHETO = 'https://cheto.example';
 
 function secrets() {
     try {
@@ -47,10 +47,10 @@ function reset() {
     writeFileSync(SECRETS, '{}');
 }
 
-async function connect(handle, { workspace = 'demo', token = `knot_ak_${handle}` } = {}) {
-    await saveCredential(KNOT, handle, token);
+async function connect(handle, { workspace = 'demo', token = `cheto_ak_${handle}` } = {}) {
+    await saveCredential(CHETO, handle, token);
     await rememberAgent({
-        url: KNOT,
+        url: CHETO,
         handle,
         agent: handle,
         workspace,
@@ -72,34 +72,34 @@ describe('two agents on one machine', () => {
             sessions.map((entry) => entry.handle),
             ['builder', 'rocky'],
         );
-        assert.equal(sessions[0].token, 'knot_ak_builder');
-        assert.equal(sessions[1].token, 'knot_ak_rocky');
+        assert.equal(sessions[0].token, 'cheto_ak_builder');
+        assert.equal(sessions[1].token, 'cheto_ak_rocky');
     });
 
     it('reconnecting the same agent replaces its row rather than adding one', async () => {
         await connect('rocky');
-        await connect('rocky', { token: 'knot_ak_rocky_2' });
+        await connect('rocky', { token: 'cheto_ak_rocky_2' });
 
         const sessions = await listAgentSessions();
 
         assert.equal(sessions.length, 1);
-        assert.equal(sessions[0].token, 'knot_ak_rocky_2');
+        assert.equal(sessions[0].token, 'cheto_ak_rocky_2');
     });
 
     it('treats @Rocky and @rocky as the same participant', async () => {
         await connect('rocky');
-        await saveCredential(KNOT, 'ROCKY', 'knot_ak_shouting');
+        await saveCredential(CHETO, 'ROCKY', 'cheto_ak_shouting');
 
         const { session } = await selectAgentSession({ handle: 'RoCkY' });
 
-        assert.equal(session.token, 'knot_ak_shouting');
+        assert.equal(session.token, 'cheto_ak_shouting');
     });
 
     it('drops an agent whose credential has gone, rather than calling it connected', async () => {
         await connect('builder');
         await connect('rocky');
 
-        writeFileSync(SECRETS, JSON.stringify({ [`${KNOT}#agent:rocky`]: 'knot_ak_rocky' }));
+        writeFileSync(SECRETS, JSON.stringify({ [`${CHETO}#agent:rocky`]: 'cheto_ak_rocky' }));
 
         const sessions = await listAgentSessions();
 
@@ -123,7 +123,7 @@ describe('choosing which agent a command speaks as', () => {
         assert.equal(session.handle, 'rocky');
     });
 
-    it('falls back to the first entry in knot.yml', async () => {
+    it('falls back to the first entry in cheto.yml', async () => {
         await connect('builder');
         await connect('rocky');
 
@@ -170,7 +170,7 @@ describe('signing one agent out', () => {
         await connect('builder');
         await connect('rocky');
 
-        await forgetAgent(KNOT, 'rocky');
+        await forgetAgent(CHETO, 'rocky');
 
         const sessions = await listAgentSessions();
 
@@ -178,16 +178,16 @@ describe('signing one agent out', () => {
             sessions.map((entry) => entry.handle),
             ['builder'],
         );
-        assert.equal(sessions[0].token, 'knot_ak_builder');
+        assert.equal(sessions[0].token, 'cheto_ak_builder');
     });
 
     it('takes the secret with it', async () => {
         await connect('rocky');
-        await forgetAgent(KNOT, 'rocky');
+        await forgetAgent(CHETO, 'rocky');
 
         // The store removes the file once it holds nothing, so "gone" is two
         // shapes: an absent file, or one without this key.
-        assert.equal(secrets()[`${KNOT}#agent:rocky`], undefined);
+        assert.equal(secrets()[`${CHETO}#agent:rocky`], undefined);
     });
 });
 
@@ -199,14 +199,14 @@ describe('a machine connected before this existed', () => {
         writeFileSync(
             SESSION,
             JSON.stringify({
-                url: KNOT,
+                url: CHETO,
                 agent: 'Builder',
                 workspace: 'Demo',
                 mention: '@builder',
                 connection: 'MacBook Pro',
             }),
         );
-        writeFileSync(SECRETS, JSON.stringify({ [KNOT]: 'knot_ak_legacy' }));
+        writeFileSync(SECRETS, JSON.stringify({ [CHETO]: 'cheto_ak_legacy' }));
     }
 
     it('still loads, with no migration and no reconnect', async () => {
@@ -216,7 +216,7 @@ describe('a machine connected before this existed', () => {
 
         assert.equal(sessions.length, 1);
         assert.equal(sessions[0].handle, 'builder');
-        assert.equal(sessions[0].token, 'knot_ak_legacy');
+        assert.equal(sessions[0].token, 'cheto_ak_legacy');
         assert.equal(sessions[0].legacy, true);
     });
 
@@ -233,15 +233,15 @@ describe('a machine connected before this existed', () => {
             sessions.map((entry) => entry.handle),
             ['builder', 'rocky'],
         );
-        assert.equal(sessions[0].token, 'knot_ak_legacy', 'the old credential is the same credential');
+        assert.equal(sessions[0].token, 'cheto_ak_legacy', 'the old credential is the same credential');
     });
 
     it('leaves the bare-URL key empty once moved, so nothing reads it twice', async () => {
         legacy();
         await migrateLegacySession();
 
-        assert.equal(secrets()[KNOT], undefined);
-        assert.equal(secrets()[`${KNOT}#agent:builder`], 'knot_ak_legacy');
+        assert.equal(secrets()[CHETO], undefined);
+        assert.equal(secrets()[`${CHETO}#agent:builder`], 'cheto_ak_legacy');
     });
 
     it('does nothing when there is nothing to move', async () => {
@@ -252,7 +252,7 @@ describe('a machine connected before this existed', () => {
 
     it('does not come back after being signed out', async () => {
         legacy();
-        await forgetAgent(KNOT, 'builder');
+        await forgetAgent(CHETO, 'builder');
 
         assert.deepEqual(await listAgentSessions(), []);
     });

@@ -9,7 +9,7 @@
  *     stdout → whatever it wants to report back
  *
  * `claude`, `codex`, `opencode`, `apx exec`, and a shell script somebody wrote
- * this morning all satisfy it without knowing Knot exists.
+ * this morning all satisfy it without knowing Cheto exists.
  */
 
 import { spawn } from 'node:child_process';
@@ -20,8 +20,8 @@ export function runCommand({ command, args = [], cwd, prompt, timeoutMs = 15 * 6
             cwd,
             // The credential is deliberately absent from the child's
             // environment. The agent is being asked to do work, not handed the
-            // ability to act as itself in Knot behind the bridge's back.
-            env: { ...env, KNOT_TOKEN: undefined },
+            // ability to act as itself in Cheto behind the bridge's back.
+            env: { ...env, CHETO_TOKEN: undefined },
             stdio: ['pipe', 'pipe', 'pipe'],
         });
 

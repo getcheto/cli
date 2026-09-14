@@ -11,7 +11,7 @@
  */
 
 import { hostname } from 'node:os';
-import { KnotApi, KnotError } from './api.js';
+import { ChetoApi, ChetoError } from './api.js';
 import { runCommand, describeRuntime } from './adapters/command.js';
 import { loadConfig } from './config.js';
 import {
@@ -31,21 +31,21 @@ import { buildPrompt, idempotencyKeyFor } from './prompt.js';
 const log = (...args) => console.log(...args);
 const warn = (...args) => console.error(...args);
 
-/** `knot connect <code>` — redeem a pairing code from the Agents page. */
+/** `cheto connect <code>` — redeem a pairing code from the Agents page. */
 export async function connect(args) {
     const code = args[0];
 
     if (!code) {
-        warn('Usage: knot connect <pairing-code> [--url https://knot.example]');
-        warn('Get a code from the Agents page in Knot: pick an agent, then Connect.');
+        warn('Usage: cheto connect <pairing-code> [--url https://cheto.example]');
+        warn('Get a code from the Agents page in Cheto: pick an agent, then Connect.');
 
         return 1;
     }
 
-    const url = flag(args, '--url') ?? (await listAgentSessions())[0]?.url ?? (await ask('Knot URL: '));
+    const url = flag(args, '--url') ?? (await listAgentSessions())[0]?.url ?? (await ask('Cheto URL: '));
 
     if (!url) {
-        warn('A Knot URL is required.');
+        warn('A Cheto URL is required.');
 
         return 1;
     }
@@ -68,13 +68,13 @@ export async function connect(args) {
         // What this machine is, and what it is running. Recorded on the
         // connection so a person can tell which laptop to disarm; it grants
         // nothing, and the server treats it as a claim rather than a fact.
-        result = await KnotApi.pair(url, code, {
+        result = await ChetoApi.pair(url, code, {
             device,
             runtime_type: config?.runtime?.type ?? null,
             runtime_name: flag(args, '--runtime') ?? config?.runtime?.command ?? null,
         });
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -102,7 +102,7 @@ export async function connect(args) {
     const others = (await listAgentSessions()).filter((entry) => entry.handle !== handle);
 
     log('');
-    log('  Connected to Knot');
+    log('  Connected to Cheto');
     log(`  Workspace:  ${result.workspace.name}`);
     log(`  Acting as:  ${result.membership?.mention ?? result.agent.name}`);
     log(`  Machine:    ${result.connection?.label ?? device}`);
@@ -116,16 +116,16 @@ export async function connect(args) {
 
     log('');
     log('  Nothing runs on its own. Start it yourself:');
-    log('    knot inbox check    one pass, machine-readable, quiet when idle');
-    log('    knot check          one pass, and run the agent if there is work');
-    log('    knot run            the same, waiting between passes');
+    log('    cheto inbox check    one pass, machine-readable, quiet when idle');
+    log('    cheto check          one pass, and run the agent if there is work');
+    log('    cheto run            the same, waiting between passes');
     log('');
 
     return 0;
 }
 
 /**
- * `knot inbox check` — is there anything, and what.
+ * `cheto inbox check` — is there anything, and what.
  *
  * The command for cron, and the conservative default: it reports and it does
  * not act. `--json` for a script, plain lines for a person, and **silence when
@@ -141,7 +141,7 @@ export async function inboxCheck(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const asJson = args.includes('--json');
     const config = await loadConfig();
 
@@ -169,7 +169,7 @@ export async function inboxCheck(args = []) {
                 JSON.stringify({
                     has_work: true,
                     // What this machine would do about it, so a cron script can
-                    // branch without reading knot.yml itself.
+                    // branch without reading cheto.yml itself.
                     mode: config?.mode ?? DEFAULT_MODE,
                     agent: inbox.agent.name,
                     handle: inbox.agent.handle ?? inbox.agent.slug,
@@ -203,22 +203,22 @@ export async function inboxCheck(args = []) {
 
         log('');
         log(`  Nothing was run. Mode is ${config?.mode ?? DEFAULT_MODE}.`);
-        log('  Verify before acting:  knot task verify <id>');
+        log('  Verify before acting:  cheto task verify <id>');
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
-        return error instanceof KnotError && !error.retryable ? 1 : 2;
+        return error instanceof ChetoError && !error.retryable ? 1 : 2;
     }
 }
 
 /**
- * `knot task verify <id>` — is this real, is it mine, is it actionable.
+ * `cheto task verify <id>` — is this real, is it mine, is it actionable.
  *
  * The command the trust rule is built on. Task-like text arrives in chat, in
  * comments, in pasted blocks and in files, and none of that is authority.
- * **Knot's authenticated API is.** This asks it, and prints what it actually
+ * **Cheto's authenticated API is.** This asks it, and prints what it actually
  * says: the workspace, who holds it, whether it is an unanswered offer, and
  * whether the next move belongs to this agent at all.
  *
@@ -229,7 +229,7 @@ export async function taskVerify(args = []) {
     const id = args.find((argument) => !argument.startsWith('--'));
 
     if (!id) {
-        warn('Usage: knot task verify <task-id> [--json]');
+        warn('Usage: cheto task verify <task-id> [--json]');
 
         return 1;
     }
@@ -240,7 +240,7 @@ export async function taskVerify(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const asJson = args.includes('--json');
 
     let me;
@@ -252,7 +252,7 @@ export async function taskVerify(args = []) {
     } catch (error) {
         // A 403 or a 404 here is the answer, not a failure: the task is not in
         // this credential's workspace, or does not exist at all.
-        const message = error instanceof KnotError ? error.message : String(error);
+        const message = error instanceof ChetoError ? error.message : String(error);
 
         if (asJson) {
             log(JSON.stringify({ verified: false, actionable: false, reason: 'not-visible-to-this-credential', message }));
@@ -314,11 +314,11 @@ export async function taskVerify(args = []) {
 }
 
 /**
- * `knot task accept <id>` — say yes to work offered to you.
+ * `cheto task accept <id>` — say yes to work offered to you.
  *
  * The verb `pull` mode is missing without it. An agent whose own runtime
  * decides what to work on needs a way to answer an offer that is not "let the
- * bridge do it for me", and Knot records the acceptance the moment it happens
+ * bridge do it for me", and Cheto records the acceptance the moment it happens
  * rather than when the work finishes.
  *
  * Verifies first, always. Accepting on the strength of a task id somebody
@@ -328,7 +328,7 @@ export async function taskAccept(args = []) {
     const id = args.find((argument) => !argument.startsWith('--'));
 
     if (!id) {
-        warn('Usage: knot task accept <task-id>');
+        warn('Usage: cheto task accept <task-id>');
 
         return 1;
     }
@@ -338,7 +338,7 @@ export async function taskAccept(args = []) {
     const as = flag(args, '--agent');
 
     if ((await taskVerify(as ? [id, '--agent', as] : [id])) !== 0) {
-        warn('Not accepting: verification refused. Nothing was sent to Knot.');
+        warn('Not accepting: verification refused. Nothing was sent to Cheto.');
 
         return 1;
     }
@@ -349,28 +349,28 @@ export async function taskAccept(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
-        const result = await api.accept(id, `knot-accept-${id}`);
+        const result = await api.accept(id, `cheto-accept-${id}`);
 
-        log(`Accepted ${result.data?.key ?? `task ${id}`}. It is yours now — Knot shows it as picked up.`);
+        log(`Accepted ${result.data?.key ?? `task ${id}`}. It is yours now — Cheto shows it as picked up.`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot task comment <id> <text>` — say something where the work is. */
+/** `cheto task comment <id> <text>` — say something where the work is. */
 export async function taskComment(args = []) {
     const [id, ...rest] = args.filter((argument) => !argument.startsWith('--'));
     const body = rest.join(' ').trim();
 
     if (!id || !body) {
-        warn('Usage: knot task comment <task-id> "what you want to say"');
+        warn('Usage: cheto task comment <task-id> "what you want to say"');
 
         return 1;
     }
@@ -381,16 +381,16 @@ export async function taskComment(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
-        await api.comment(id, body, `knot-comment-${id}-${Date.now()}`);
+        await api.comment(id, body, `cheto-comment-${id}-${Date.now()}`);
 
         log(`Commented on task ${id}.`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -399,7 +399,7 @@ export async function taskComment(args = []) {
 const TASK_TYPES = ['task', 'feature', 'bug', 'chore', 'epic', 'idea'];
 
 /**
- * `knot task type <id> <type>` — file it as what it actually is.
+ * `cheto task type <id> <type>` — file it as what it actually is.
  *
  * The row somebody dropped on the board is often not a job: it is a thought, a
  * duplicate, or a bug wearing a feature's clothes. Answering that is the useful
@@ -410,7 +410,7 @@ export async function taskType(args = []) {
     const [id, type] = args.filter((argument) => !argument.startsWith('--'));
 
     if (!id || !TASK_TYPES.includes(String(type))) {
-        warn(`Usage: knot task type <task-id> <${TASK_TYPES.join('|')}>`);
+        warn(`Usage: cheto task type <task-id> <${TASK_TYPES.join('|')}>`);
 
         return 1;
     }
@@ -421,25 +421,25 @@ export async function taskType(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         // Keyed by what the change is, not by the clock: two passes deciding the
         // same thing must be one write, which is the whole point of a retry.
-        await api.setType(id, type, `knot-type-${id}-${type}`);
+        await api.setType(id, type, `cheto-type-${id}-${type}`);
 
         log(`Task ${id} is now ${type === 'idea' || type === 'epic' ? 'an' : 'a'} ${type}.`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot task create` — write something down from here.
+ * `cheto task create` — write something down from here.
  *
  * The command that was missing, and its absence was not a decision anybody
  * made: an agent could verify, accept, comment on and re-type a task from this
@@ -451,16 +451,16 @@ export async function taskType(args = []) {
  * when it does not — so on a workspace with fourteen boards, an agent that never
  * says lands everything in the same place.
  *
- *   knot task create "El cliente acepta o rechaza" --area marketing-reels
- *   knot task create "Falla el alta" --area backlog-tecnico --column "Esperando"
+ *   cheto task create "El cliente acepta o rechaza" --area marketing-reels
+ *   cheto task create "Falla el alta" --area backlog-tecnico --column "Esperando"
  */
 export async function taskCreate(args = []) {
     const title = args.filter((argument) => !argument.startsWith('--'))[0];
 
     if (!title) {
-        warn('Usage: knot task create "What it is" [--area <name|slug|id>] [--column "Name"]');
+        warn('Usage: cheto task create "What it is" [--area <name|slug|id>] [--column "Name"]');
         warn('                       [--type bug] [--priority high] [--due 2026-09-30] [--tag reel]');
-        warn('Boards come from: knot areas');
+        warn('Boards come from: cheto areas');
 
         return 1;
     }
@@ -471,7 +471,7 @@ export async function taskCreate(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         const placement = await placementFor(api, flag(args, '--area'), flag(args, '--column'));
@@ -494,21 +494,21 @@ export async function taskCreate(args = []) {
 
         // Keyed by what the task is, not by the clock: a pass that runs twice
         // on the same idea has to produce one task, which is what a retry means.
-        const { data } = await api.createTask(body, `knot-create-${slugify(title)}`);
+        const { data } = await api.createTask(body, `cheto-create-${slugify(title)}`);
 
         log(`${data.key}  ${data.title}`);
         log(`  on ${areaNameOf(data)}${data.board_status ? ` · ${data.board_status.name}` : ''}`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot areas` — the boards of this workspace, and which one is this agent's.
+ * `cheto areas` — the boards of this workspace, and which one is this agent's.
  *
  * Here because `--area` needs somewhere to read its argument from, and because
  * "where does my work go" is a question an agent's operator asks before the
@@ -521,7 +521,7 @@ export async function areas(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         const me = await api.me();
@@ -548,7 +548,7 @@ export async function areas(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -565,7 +565,7 @@ export async function areas(args = []) {
 async function placementFor(api, area, column) {
     if (!area) {
         if (column) {
-            throw new KnotError('A column belongs to a board, so --column needs --area as well. Run: knot areas');
+            throw new ChetoError('A column belongs to a board, so --column needs --area as well. Run: cheto areas');
         }
 
         return {};
@@ -580,7 +580,7 @@ async function placementFor(api, area, column) {
         boards.find((candidate) => String(candidate.name ?? '').toLowerCase() === wanted);
 
     if (!board) {
-        throw new KnotError(`No board called "${area}" here. There is: ${boards.map((one) => one.slug).join(', ') || 'none'}.`);
+        throw new ChetoError(`No board called "${area}" here. There is: ${boards.map((one) => one.slug).join(', ') || 'none'}.`);
     }
 
     if (!column) {
@@ -593,7 +593,7 @@ async function placementFor(api, area, column) {
     );
 
     if (!match) {
-        throw new KnotError(`"${board.name}" has no column called "${column}". It has: ${(board.statuses ?? []).map((one) => one.name).join(', ')}.`);
+        throw new ChetoError(`"${board.name}" has no column called "${column}". It has: ${(board.statuses ?? []).map((one) => one.name).join(', ')}.`);
     }
 
     // The column alone: it names its own board, and sending both is two chances
@@ -618,16 +618,16 @@ function slugify(value) {
 }
 
 /**
- * `knot memory` — what the workspace knows, as against what it said.
+ * `cheto memory` — what the workspace knows, as against what it said.
  *
  * The third thing an agent needs, after a bounded read and a way to search:
  * somewhere to put what it worked out. An agent that rediscovers the same fact
  * every week is exactly as expensive as one that reads the whole channel.
  *
- *   knot memory                       everything, newest first
- *   knot memory get <name>            one, by the name it answers to
- *   knot memory write "Title" "Body"  [--key staging-access]
- *   knot memory forget <id>
+ *   cheto memory                       everything, newest first
+ *   cheto memory get <name>            one, by the name it answers to
+ *   cheto memory write "Title" "Body"  [--key staging-access]
+ *   cheto memory forget <id>
  */
 export async function memoryList(args = []) {
     const session = await requireSession(args);
@@ -636,13 +636,13 @@ export async function memoryList(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         const { data } = await api.memories({ q: flag(args, '--q') });
 
         if (data.length === 0) {
-            log('Nothing written down yet. Add one: knot memory write "Title" "What to remember"');
+            log('Nothing written down yet. Add one: cheto memory write "Title" "What to remember"');
 
             return 0;
         }
@@ -657,18 +657,18 @@ export async function memoryList(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot memory get <name>` — the whole of one, by the name it answers to. */
+/** `cheto memory get <name>` — the whole of one, by the name it answers to. */
 export async function memoryGet(args = []) {
     const key = args.find((argument) => !argument.startsWith('--'));
 
     if (!key) {
-        warn('Usage: knot memory get <name>');
+        warn('Usage: cheto memory get <name>');
 
         return 1;
     }
@@ -679,7 +679,7 @@ export async function memoryGet(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         const { data } = await api.memories({ key });
@@ -698,18 +698,18 @@ export async function memoryGet(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot memory write "Title" "What to remember" [--key name]` */
+/** `cheto memory write "Title" "What to remember" [--key name]` */
 export async function memoryWrite(args = []) {
     const [title, body] = args.filter((argument) => !argument.startsWith('--'));
 
     if (!title || !body) {
-        warn('Usage: knot memory write "Title" "What to remember" [--key staging-access]');
+        warn('Usage: cheto memory write "Title" "What to remember" [--key staging-access]');
 
         return 1;
     }
@@ -720,30 +720,30 @@ export async function memoryWrite(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const key = flag(args, '--key');
 
     try {
         // Keyed on the name where there is one, so writing the same conclusion
         // twice updates one note rather than making a second.
-        const { data } = await api.writeMemory({ title, body, key: key ?? undefined }, `knot-memory-${key ?? title}`);
+        const { data } = await api.writeMemory({ title, body, key: key ?? undefined }, `cheto-memory-${key ?? title}`);
 
         log(`  Remembered: ${data.title}${data.key ? `  (${data.key})` : ''}  ·  memory ${data.id}`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot memory forget <id>` — only what this agent wrote. */
+/** `cheto memory forget <id>` — only what this agent wrote. */
 export async function memoryForget(args = []) {
     const id = args.find((argument) => !argument.startsWith('--'));
 
     if (!id) {
-        warn('Usage: knot memory forget <memory-id>     (knot memory shows them)');
+        warn('Usage: cheto memory forget <memory-id>     (cheto memory shows them)');
 
         return 1;
     }
@@ -754,7 +754,7 @@ export async function memoryForget(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         await api.forgetMemory(id);
@@ -765,14 +765,14 @@ export async function memoryForget(args = []) {
     } catch (error) {
         // A refusal here is the policy, not a fault: an agent may remove what
         // it wrote and nothing else.
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot search "what somebody said"` — reach past the last ten messages.
+ * `cheto search "what somebody said"` — reach past the last ten messages.
  *
  * The command that makes bounded context bearable. An agent's prompt holds a
  * few compacts and a handful of messages; everything older is one question
@@ -787,7 +787,7 @@ export async function search(args = []) {
     const query = args.filter((argument) => !argument.startsWith('--'))[0];
 
     if (!query) {
-        warn('Usage: knot search "what somebody said" [--kind message|task|comment|compact] [--limit 20] [--json]');
+        warn('Usage: cheto search "what somebody said" [--kind message|task|comment|compact] [--limit 20] [--json]');
 
         return 1;
     }
@@ -798,7 +798,7 @@ export async function search(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const asJson = args.includes('--json');
 
     // Repeatable: `--kind task --kind comment` narrows to both.
@@ -809,7 +809,7 @@ export async function search(args = []) {
     try {
         answer = await api.search(query, { kinds, limit: Number(flag(args, '--limit') ?? 0) });
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -843,9 +843,9 @@ export async function search(args = []) {
 }
 
 /**
- * `knot compact` — fold a channel's history so reading it stays affordable.
+ * `cheto compact` — fold a channel's history so reading it stays affordable.
  *
- * The other half of an arrangement Knot deliberately only does half of. Knot
+ * The other half of an arrangement Cheto deliberately only does half of. Cheto
  * counts the messages and says when a fold is due; it has no model and no key,
  * so it never writes one. This does — with the runtime already configured on
  * this machine, and the tokens that runtime is already spending.
@@ -863,7 +863,7 @@ export async function compact(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const config = await loadConfig();
     const entry = entryFor(config, session.handle) ?? {};
     const wanted = flag(args, '--channel');
@@ -873,7 +873,7 @@ export async function compact(args = []) {
     try {
         channels = (await api.channels()).data ?? [];
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -896,7 +896,7 @@ export async function compact(args = []) {
         try {
             pending = await api.pendingCompact(channel.id);
         } catch (error) {
-            warn(`#${channel.slug}: ${error instanceof KnotError ? error.message : String(error)}`);
+            warn(`#${channel.slug}: ${error instanceof ChetoError ? error.message : String(error)}`);
 
             continue;
         }
@@ -914,7 +914,7 @@ export async function compact(args = []) {
             log('');
             log(prompt);
             log('');
-            warn(`No runtime configured in knot.yml — nothing was written for #${channel.slug}.`);
+            warn(`No runtime configured in cheto.yml — nothing was written for #${channel.slug}.`);
 
             continue;
         }
@@ -935,12 +935,12 @@ export async function compact(args = []) {
         try {
             // Keyed on the span rather than the clock: a retry after a lost
             // response must be the same request, or one fold becomes two.
-            await api.postCompact(channel.id, result.output.trim(), `knot-compact-${channel.id}-${pending.data.at(-1)?.id}`);
+            await api.postCompact(channel.id, result.output.trim(), `cheto-compact-${channel.id}-${pending.data.at(-1)?.id}`);
 
             log(`  folded ${pending.count} messages in #${channel.slug}`);
             folded += 1;
         } catch (error) {
-            warn(`#${channel.slug}: ${error instanceof KnotError ? error.message : String(error)}`);
+            warn(`#${channel.slug}: ${error instanceof ChetoError ? error.message : String(error)}`);
         }
     }
 
@@ -987,7 +987,7 @@ function describeMode(mode) {
     }[mode] ?? '';
 }
 
-/** `knot status` — who am I, where am I, is there work. */
+/** `cheto status` — who am I, where am I, is there work. */
 export async function status(args = []) {
     const session = await requireSession(args);
 
@@ -995,7 +995,7 @@ export async function status(args = []) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
 
     try {
         const me = await api.me();
@@ -1004,11 +1004,11 @@ export async function status(args = []) {
         const entry = entryFor(config, session.handle) ?? {};
 
         log('');
-        log(`  Knot:      ${session.url}`);
+        log(`  Cheto:      ${session.url}`);
         log(`  Workspace: ${me.workspace.name}`);
         log(`  Agent:     ${me.agent.name}  (${me.agent.status.value})`);
         log(`  Secrets:   ${await storeName()}`);
-        log(`  Runtime:   ${describeRuntime(entry.runtime) ?? 'not configured — knot will print work instead of running anything'}`);
+        log(`  Runtime:   ${describeRuntime(entry.runtime) ?? 'not configured — cheto will print work instead of running anything'}`);
         log(`  Mode:      ${entry.mode ?? DEFAULT_MODE}  ${describeMode(entry.mode ?? DEFAULT_MODE)}`);
 
         const schedule = describeSchedule(entry.automation?.tasks?.schedule);
@@ -1039,14 +1039,14 @@ export async function status(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot check` — one pass.
+ * `cheto check` — one pass.
  *
  * Heartbeat, read the inbox, ask the policy, hand over what it allows, report.
  * Returns 0 whether or not there was anything to do: "nothing was waiting" is a
@@ -1064,12 +1064,12 @@ export async function check(args = [], state = {}) {
         return 1;
     }
 
-    const api = new KnotApi({ url: session.url, token: session.token });
+    const api = new ChetoApi({ url: session.url, token: session.token });
     const config = await loadConfig();
     const entry = entryFor(config, session.handle);
 
     if (entry === null) {
-        warn(`knot.yml describes several agents and none of them is @${session.handle}.`);
+        warn(`cheto.yml describes several agents and none of them is @${session.handle}.`);
         warn('Add an entry for it, or run the one this checkout is for with --agent.');
 
         return 1;
@@ -1136,7 +1136,7 @@ export async function check(args = [], state = {}) {
         // Reported, never done here. Folding costs tokens, and `check` is the
         // command people put in cron — it must not quietly start spending.
         (inbox.compacts_due ?? []).forEach((due) => {
-            log(`  #${due.channel.slug} has ${due.uncompacted} messages nobody has summarised — knot compact --channel ${due.channel.slug}`);
+            log(`  #${due.channel.slug} has ${due.uncompacted} messages nobody has summarised — cheto compact --channel ${due.channel.slug}`);
         });
 
         // Everything the policy held, and why. This is the line that makes a
@@ -1150,7 +1150,7 @@ export async function check(args = [], state = {}) {
             log('  Nothing was handed to the runtime.');
 
             if (decision.tasks.held.length > 0) {
-                log('  To act on one:  knot task verify <id>  then  knot task accept <id>');
+                log('  To act on one:  cheto task verify <id>  then  cheto task accept <id>');
             }
 
             // The held list above is the whole output of a `notify` pass, and
@@ -1199,7 +1199,7 @@ export async function check(args = [], state = {}) {
                 await api.markNotificationsRead();
                 warn('No runtime here — the prompt above was handed over, and this pass will not repeat.');
             } else {
-                warn('No runtime configured in knot.yml — nothing was run and nothing was accepted.');
+                warn('No runtime configured in cheto.yml — nothing was run and nothing was accepted.');
             }
 
             return 0;
@@ -1216,7 +1216,7 @@ export async function check(args = [], state = {}) {
         for (const task of decision.tasks.eligible) {
             if (task.is_offered) {
                 try {
-                    await api.accept(task.id, `knot-accept-${task.id}`);
+                    await api.accept(task.id, `cheto-accept-${task.id}`);
                     log(`  accepted ${task.key}`);
                 } catch (error) {
                     // Somebody else got there, or it moved. Not our work now.
@@ -1255,18 +1255,18 @@ export async function check(args = [], state = {}) {
         // and then failing would lose the only record that the agent was told.
         await api.markNotificationsRead();
 
-        log('Reported back to Knot.');
+        log('Reported back to Cheto.');
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
-        return error instanceof KnotError && !error.retryable ? 1 : 2;
+        return error instanceof ChetoError && !error.retryable ? 1 : 2;
     }
 }
 
 /**
- * `knot run` — check, forever.
+ * `cheto run` — check, forever.
  *
  * Between passes it asks the server to hold the connection until something
  * happens, so an assignment reaches the agent in about a second rather than on
@@ -1283,7 +1283,7 @@ export async function run(args = []) {
     const wait = Number(flag(args, '--wait') ?? 25);
     const floor = Number(flag(args, '--interval') ?? 5);
 
-    log(`  Listening. Knot: ${session.url}  ·  agent: ${session.mention ?? session.agent ?? 'unknown'}`);
+    log(`  Listening. Cheto: ${session.url}  ·  agent: ${session.mention ?? session.agent ?? 'unknown'}`);
     log('  Ctrl-C to stop.');
     log('');
 
@@ -1334,7 +1334,7 @@ export async function run(args = []) {
 }
 
 /**
- * `knot logout` — forget one agent's credential on this machine.
+ * `cheto logout` — forget one agent's credential on this machine.
  *
  * One, not all. A machine running three agents that loses all three because
  * somebody signed one out is a machine nobody trusts with the second one.
@@ -1355,7 +1355,7 @@ export async function logout(args = []) {
         }
 
         log(`Disconnected ${sessions.map((entry) => `@${entry.handle ?? '?'}`).join(', ')}.`);
-        log('The credentials still exist in Knot — revoke them there if this machine is gone for good.');
+        log('The credentials still exist in Cheto — revoke them there if this machine is gone for good.');
 
         return 0;
     }
@@ -1375,7 +1375,7 @@ export async function logout(args = []) {
         log(`Still connected here: ${left.map((entry) => `@${entry.handle}`).join(', ')}`);
     }
 
-    log('The credential still exists in Knot — revoke it there if this machine is gone for good.');
+    log('The credential still exists in Cheto — revoke it there if this machine is gone for good.');
 
     return 0;
 }
@@ -1446,7 +1446,7 @@ async function report(api, inbox, decision, output) {
 }
 
 /**
- * The `knot.yml` entry that describes what to run for this agent.
+ * The `cheto.yml` entry that describes what to run for this agent.
  *
  * A file with one entry describes this machine, whatever it calls the agent —
  * `agent:` there is a label, and a single-entry config is unambiguous about
@@ -1467,7 +1467,7 @@ function entryFor(config, handle) {
 /**
  * The agent this command speaks as.
  *
- * `--agent <handle>` first, then whatever `knot.yml` names first, then the only
+ * `--agent <handle>` first, then whatever `cheto.yml` names first, then the only
  * one connected. When several are connected and nothing picks between them it
  * refuses and lists them: acting as the wrong agent is a comment in somebody
  * else's name, and there is no undoing that from here.
@@ -1484,8 +1484,8 @@ async function requireSession(args = []) {
     }
 
     if (reason === 'none') {
-        warn('Not connected. Run: knot connect <pairing-code>');
-        warn('Get a code from the Agents page in Knot.');
+        warn('Not connected. Run: cheto connect <pairing-code>');
+        warn('Get a code from the Agents page in Cheto.');
 
         return null;
     }
@@ -1497,7 +1497,7 @@ async function requireSession(args = []) {
     }
 
     warn(`Connected: ${sessions.map((entry) => `@${entry.handle ?? '?'} (${entry.workspace ?? '?'})`).join(', ')}`);
-    warn('Pick one with --agent <handle>, or name it first in knot.yml.');
+    warn('Pick one with --agent <handle>, or name it first in cheto.yml.');
 
     return null;
 }

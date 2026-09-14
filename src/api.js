@@ -1,5 +1,5 @@
 /**
- * The Knot API client.
+ * The Cheto API client.
  *
  * Deliberately thin: it adds a bearer header, parses JSON, and turns a failure
  * into an error a human can read. Everything else — what to call, in what
@@ -7,14 +7,14 @@
  *
  * `fetch` is built into Node 20, so this file has no dependencies. That is not
  * frugality for its own sake: a bridge somebody has to `npm install` before
- * their agent can talk to Knot is a bridge with an install step, and the whole
- * point is that Knot does not require one.
+ * their agent can talk to Cheto is a bridge with an install step, and the whole
+ * point is that Cheto does not require one.
  */
 
-export class KnotError extends Error {
+export class ChetoError extends Error {
     constructor(message, { status = 0, body = null } = {}) {
         super(message);
-        this.name = 'KnotError';
+        this.name = 'ChetoError';
         this.status = status;
         this.body = body;
     }
@@ -31,7 +31,7 @@ export class KnotError extends Error {
     }
 }
 
-export class KnotApi {
+export class ChetoApi {
     constructor({ url, token, fetchImpl = globalThis.fetch }) {
         this.base = `${String(url).replace(/\/+$/, '')}/api/v1/agent`;
         this.token = token;
@@ -71,7 +71,7 @@ export class KnotApi {
                 signal: controller.signal,
             });
         } catch (cause) {
-            throw new KnotError(`Could not reach Knot at ${this.base}: ${cause.message}`, { status: 0 });
+            throw new ChetoError(`Could not reach Cheto at ${this.base}: ${cause.message}`, { status: 0 });
         } finally {
             clearTimeout(timer);
         }
@@ -83,16 +83,16 @@ export class KnotApi {
             parsed = text ? JSON.parse(text) : null;
         } catch {
             // A non-JSON body from an API means something upstream answered
-            // instead of Knot — a proxy error page, usually. Say so rather
+            // instead of Cheto — a proxy error page, usually. Say so rather
             // than reporting a parse failure.
-            throw new KnotError(
-                `Knot returned ${response.status} with a body that is not JSON. Is ${this.base} really a Knot API?`,
+            throw new ChetoError(
+                `Cheto returned ${response.status} with a body that is not JSON. Is ${this.base} really a Cheto API?`,
                 { status: response.status },
             );
         }
 
         if (!response.ok) {
-            throw new KnotError(parsed?.message ?? `Knot returned ${response.status}`, {
+            throw new ChetoError(parsed?.message ?? `Cheto returned ${response.status}`, {
                 status: response.status,
                 body: parsed,
             });
@@ -235,7 +235,7 @@ export class KnotApi {
     }
 
     static pair(url, code, body = {}, fetchImpl = globalThis.fetch) {
-        const api = new KnotApi({ url, token: null, fetchImpl });
+        const api = new ChetoApi({ url, token: null, fetchImpl });
 
         return api.request('/pair', { method: 'POST', body: { code, ...body } });
     }
@@ -249,7 +249,7 @@ export class KnotApi {
  * make it one refactor away from sending an agent credential to a route that
  * mints principals.
  */
-export class KnotUserApi {
+export class ChetoUserApi {
     constructor({ url, token, fetchImpl = globalThis.fetch }) {
         this.base = `${String(url).replace(/\/+$/, '')}/api/v1/cli`;
         this.token = token;
@@ -257,10 +257,10 @@ export class KnotUserApi {
     }
 
     request(path, options = {}) {
-        // Same transport, different prefix. KnotApi's request() is written
+        // Same transport, different prefix. ChetoApi's request() is written
         // against `this.base`, so borrowing it here is exact rather than
         // approximate.
-        return KnotApi.prototype.request.call(this, path, options);
+        return ChetoApi.prototype.request.call(this, path, options);
     }
 
     me() {
@@ -296,9 +296,9 @@ export class KnotUserApi {
         return this.request(`/connections/${connectionId}`, { method: 'DELETE' });
     }
 
-    /** Begin `knot login`. Unauthenticated: this is how a token is obtained. */
+    /** Begin `cheto login`. Unauthenticated: this is how a token is obtained. */
     static startLogin(url, machine, fetchImpl = globalThis.fetch) {
-        const api = new KnotUserApi({ url, token: null, fetchImpl });
+        const api = new ChetoUserApi({ url, token: null, fetchImpl });
 
         return api.request('/device', { method: 'POST', body: { machine } });
     }
@@ -310,12 +310,12 @@ export class KnotUserApi {
      * else is a decision, and decisions do not change by asking again.
      */
     static async collect(url, deviceCode, fetchImpl = globalThis.fetch) {
-        const api = new KnotUserApi({ url, token: null, fetchImpl });
+        const api = new ChetoUserApi({ url, token: null, fetchImpl });
 
         try {
             return await api.request('/device/token', { method: 'POST', body: { device_code: deviceCode } });
         } catch (error) {
-            if (error instanceof KnotError && error.status === 428) {
+            if (error instanceof ChetoError && error.status === 428) {
                 return null;
             }
 

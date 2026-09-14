@@ -1,7 +1,7 @@
 /*
  * What the runtime is asked to write.
  *
- * The prompt is the whole of this feature that is not a database row: Knot
+ * The prompt is the whole of this feature that is not a database row: Cheto
  * never summarises anything, so what a compact says is decided here and
  * nowhere else. Which makes it worth pinning.
  */
