@@ -39,20 +39,20 @@ export const DEFAULT_MODE = 'notify';
  * Chat class, not work class. A comment on a task is a conversation about work;
  * it is not permission to do the work.
  *
- * `notifications.knot.mentioned` is deliberately absent. A channel mention
+ * `notifications.cheto.mentioned` is deliberately absent. A channel mention
  * writes both a mention row and a notification, and the row carries the body
  * and the channel while the notification carries neither — so counting both
  * showed every mention twice, the second time with nothing in it.
  */
 const CHAT_NOTIFICATIONS = new Set([
-    'notifications.knot.task_commented',
-    'notifications.knot.task_comment_mentioned',
+    'notifications.cheto.task_commented',
+    'notifications.cheto.task_comment_mentioned',
 ]);
 
 /**
  * @param {object}  options
  * @param {object}  options.inbox    the `GET /inbox` payload
- * @param {object}  options.config   the parsed knot.yml entry for this agent
+ * @param {object}  options.config   the parsed cheto.yml entry for this agent
  * @param {Date}    options.now      injected so the schedule is testable
  * @param {boolean} options.force    a person typed `--run`: their call, this pass
  * @param {(id: number) => string|null} options.handled  last handover fingerprint
@@ -134,7 +134,7 @@ export function decide({ inbox, config = {}, now = new Date(), force = false, ha
     decision.schedule = schedule;
 
     if (!schedule.inside) {
-        // Held, not dropped. The work stays in Knot exactly as it was and the
+        // Held, not dropped. The work stays in Cheto exactly as it was and the
         // window opening is enough for the next pass to pick it up.
         hold(decision.tasks, tasks, schedule.reason);
         hold(decision.reviews, reviews, schedule.reason);
@@ -178,14 +178,14 @@ export function decide({ inbox, config = {}, now = new Date(), force = false, ha
 /**
  * A task the board says a person has to look at first.
  *
- * Set in Knot by whoever wrote the task, not in `knot.yml`. The automation
+ * Set in Cheto by whoever wrote the task, not in `cheto.yml`. The automation
  * policy lives on this machine and always will; this is the one thing the work
  * itself gets to say about it, and it only ever makes a pass more
  * conservative — a task that says nothing is an ordinary task.
  *
  * Released by acceptance rather than by a flag. Accepting is a deliberate act
  * on this specific task, which is exactly what "somebody has to look at it"
- * asked for; `knot task accept <id>` is a person doing it from a terminal, and
+ * asked for; `cheto task accept <id>` is a person doing it from a terminal, and
  * the panel is a person doing it in a browser. The bridge never auto-accepts
  * work it is holding, so there is no loop back to itself.
  */
@@ -226,7 +226,7 @@ function finish(decision, force, tasks, reviews) {
     decision.wake = decision.scope !== null;
 
     if (decision.wake && !decision.runtimeConfigured) {
-        decision.notices.push('No runtime configured in knot.yml — the prompt is printed instead of run.');
+        decision.notices.push('No runtime configured in cheto.yml — the prompt is printed instead of run.');
     }
 
     return decision;
@@ -262,7 +262,7 @@ function collectChat(inbox) {
             task: notification.parameters?.task ?? null,
             author: notification.parameters?.actor ?? 'someone',
             body:
-                notification.key === 'notifications.knot.task_comment_mentioned'
+                notification.key === 'notifications.cheto.task_comment_mentioned'
                     ? 'named you in a comment'
                     : 'commented on your task',
         }));
@@ -344,7 +344,7 @@ function taskRefusal(task, filters, inbox, handled) {
         }
     }
 
-    // "project" in the product sense. In Knot a workspace is the project, and
+    // "project" in the product sense. In Cheto a workspace is the project, and
     // the credential already pins it — this filter is for a config shared
     // across machines that connect to more than one.
     const workspaces = list(filters.workspaces ?? filters.projects);
@@ -424,7 +424,7 @@ function normaliseMode(value) {
     const mode = String(value).toLowerCase();
 
     if (!MODES.includes(mode)) {
-        throw new Error(`knot.yml: mode "${value}" is not one of ${MODES.join(', ')}`);
+        throw new Error(`cheto.yml: mode "${value}" is not one of ${MODES.join(', ')}`);
     }
 
     return mode;

@@ -1,5 +1,5 @@
 /**
- * `knot.yml` — which agent runtime to run, and where.
+ * `cheto.yml` — which agent runtime to run, and where.
  *
  * A deliberately tiny YAML reader rather than a dependency. The schema is nine
  * keys and two levels deep; pulling in a parser for that would be the only
@@ -52,7 +52,7 @@ export function parseSimpleYaml(source) {
 
             if (!Array.isArray(frame.node)) {
                 if (frame.parent === null) {
-                    throw new Error(`knot.yml line ${index + 1}: a list needs a key above it`);
+                    throw new Error(`cheto.yml line ${index + 1}: a list needs a key above it`);
                 }
 
                 const list = [];
@@ -94,7 +94,7 @@ function assign(stack, line, indent, index) {
     const separator = line.indexOf(':');
 
     if (separator === -1) {
-        throw new Error(`knot.yml line ${index + 1}: expected "key: value", got "${line}"`);
+        throw new Error(`cheto.yml line ${index + 1}: expected "key: value", got "${line}"`);
     }
 
     const key = line.slice(0, separator).trim();
@@ -102,7 +102,7 @@ function assign(stack, line, indent, index) {
     const frame = stack[stack.length - 1];
 
     if (Array.isArray(frame.node)) {
-        throw new Error(`knot.yml line ${index + 1}: "${key}" is inside a list; every item needs its own "- "`);
+        throw new Error(`cheto.yml line ${index + 1}: "${key}" is inside a list; every item needs its own "- "`);
     }
 
     if (rawValue === '') {
@@ -148,7 +148,7 @@ export function expandHome(path) {
  *
  * The working directory first, so a checkout can carry the agent it belongs to
  * — which is how Lucía's Mac and Diego's PC end up running different agents
- * against the same Knot without either of them configuring anything global.
+ * against the same Cheto without either of them configuring anything global.
  *
  * Two shapes, and the single-agent one keeps working exactly as it did:
  *
@@ -165,7 +165,7 @@ export function expandHome(path) {
  * agent across three projects — and both directions are real.
  */
 export async function loadConfig(cwd = process.cwd()) {
-    for (const candidate of [join(cwd, 'knot.yml'), join(cwd, 'knot.yaml'), join(CONFIG_HOME, 'knot.yml')]) {
+    for (const candidate of [join(cwd, 'cheto.yml'), join(cwd, 'cheto.yaml'), join(CONFIG_HOME, 'cheto.yml')]) {
         let parsed;
 
         try {

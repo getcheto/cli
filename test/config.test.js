@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseSimpleYaml } from '../src/config.js';
 
-describe('knot.yml', () => {
+describe('cheto.yml', () => {
     it('reads a list of plain values, which is how filters are written', () => {
         const parsed = parseSimpleYaml(`
 filters:

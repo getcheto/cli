@@ -6,7 +6,7 @@
  * and re-comments on work it started an hour ago — which looks like diligence
  * and is actually a loop.
  *
- * Knot's own fields answer most of this already: a task in Review is not
+ * Cheto's own fields answer most of this already: a task in Review is not
  * actionable, and an accepted task is no longer an offer. What they cannot
  * answer is "did *this machine* already act on this", because two runtimes may
  * share one membership. So it is recorded here, locally, next to the config
@@ -25,9 +25,9 @@ import { CONFIG_HOME } from './credentials.js';
 const MAX_ENTRIES = 500;
 
 /**
- * Per Knot **and** per agent.
+ * Per Cheto **and** per agent.
  *
- * Per Knot so a machine talking to staging and production does not carry one's
+ * Per Cheto so a machine talking to staging and production does not carry one's
  * task ids into the other. Per agent because a machine runs several, and "this
  * machine already handled TASK-9" is a different fact for each of them: the
  * reviewer has not seen what the implementer was handed.

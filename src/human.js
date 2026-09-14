@@ -11,7 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, extname } from 'node:path';
-import { KnotError, KnotUserApi } from './api.js';
+import { ChetoError, ChetoUserApi } from './api.js';
 import {
     forgetUserCredential,
     listAgentSessions,
@@ -26,22 +26,22 @@ const log = (...args) => console.log(...args);
 const warn = (...args) => console.error(...args);
 
 /**
- * `knot login` — authorize this terminal, through a browser.
+ * `cheto login` — authorize this terminal, through a browser.
  *
  * The device flow. Nothing is typed in here but the command: the CLI asks for a
  * code, the person approves it in a browser they are already signed in to, and
  * the CLI collects a scoped credential.
  *
- * Chosen over a loopback redirect because a Knot agent frequently runs where
+ * Chosen over a loopback redirect because a Cheto agent frequently runs where
  * there is no browser — a server, a container, an SSH session — and this is the
  * flow that still works there, since the approval happens on whatever device
  * the person is holding.
  */
 export async function login(args = []) {
-    const url = flag(args, '--url') ?? (await loadUserSession())?.url ?? (await ask('Knot URL: '));
+    const url = flag(args, '--url') ?? (await loadUserSession())?.url ?? (await ask('Cheto URL: '));
 
     if (!url) {
-        warn('A Knot URL is required: knot login --url https://knot.example');
+        warn('A Cheto URL is required: cheto login --url https://cheto.example');
 
         return 1;
     }
@@ -51,9 +51,9 @@ export async function login(args = []) {
     let started;
 
     try {
-        started = await KnotUserApi.startLogin(url, machine);
+        started = await ChetoUserApi.startLogin(url, machine);
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -80,10 +80,10 @@ export async function login(args = []) {
         let collected;
 
         try {
-            collected = await KnotUserApi.collect(url, started.device_code);
+            collected = await ChetoUserApi.collect(url, started.device_code);
         } catch (error) {
             warn('');
-            warn(error instanceof KnotError ? error.message : String(error));
+            warn(error instanceof ChetoError ? error.message : String(error));
 
             return 1;
         }
@@ -102,49 +102,49 @@ export async function login(args = []) {
         log(`  Credential stored in: ${store}`);
         log(`  Can: ${collected.scopes.join(', ')}`);
         log('');
-        log('  Next: knot agent create "Builder" --workspace demo');
+        log('  Next: cheto agent create "Builder" --workspace demo');
         log('');
 
         return 0;
     }
 
     warn('');
-    warn('Timed out waiting for approval. Run knot login again.');
+    warn('Timed out waiting for approval. Run cheto login again.');
 
     return 1;
 }
 
-/** `knot whoami` — who this machine is signed in as, and what it runs. */
+/** `cheto whoami` — who this machine is signed in as, and what it runs. */
 export async function whoami() {
     const session = await loadUserSession();
     const config = await loadConfig();
 
     if (!session) {
         log('');
-        log('  Not signed in. Run: knot login');
+        log('  Not signed in. Run: cheto login');
         log('');
     } else {
-        const api = new KnotUserApi({ url: session.url, token: session.token });
+        const api = new ChetoUserApi({ url: session.url, token: session.token });
 
         try {
             const me = await api.me();
 
             log('');
-            log(`  Knot:       ${session.url}`);
+            log(`  Cheto:       ${session.url}`);
             log(`  Signed in:  ${me.user.name} <${me.user.email}>`);
             log(`  Can:        ${me.scopes.join(', ')}`);
             log(`  Workspaces: ${me.workspaces.map((workspace) => workspace.slug).join(', ') || 'none'}`);
             log(`  Secrets:    ${await storeName()}`);
             log('');
         } catch (error) {
-            warn(error instanceof KnotError ? error.message : String(error));
+            warn(error instanceof ChetoError ? error.message : String(error));
 
             return 1;
         }
     }
 
     // What is actually armed here, which is a different question again. A
-    // credential exists or it does not; `knot.yml` only says what would be run
+    // credential exists or it does not; `cheto.yml` only says what would be run
     // if one did.
     const connected = await listAgentSessions();
 
@@ -166,14 +166,14 @@ export async function whoami() {
         });
         log('');
     } else {
-        log('  No knot.yml here — nothing would run on this machine.');
+        log('  No cheto.yml here — nothing would run on this machine.');
         log('');
     }
 
     return 0;
 }
 
-/** `knot agent list` — the agents you own, and where each one works. */
+/** `cheto agent list` — the agents you own, and where each one works. */
 export async function agentList() {
     const api = await requireUser();
 
@@ -185,7 +185,7 @@ export async function agentList() {
         const { data } = await api.agents();
 
         if (data.length === 0) {
-            log('No agents yet. Create one: knot agent create "Builder" --workspace demo');
+            log('No agents yet. Create one: cheto agent create "Builder" --workspace demo');
 
             return 0;
         }
@@ -217,20 +217,20 @@ export async function agentList() {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot agent create <name> --workspace <slug|uuid>` */
+/** `cheto agent create <name> --workspace <slug|uuid>` */
 export async function agentCreate(args = []) {
     // The name is positional and comes first. Everything after it is flags,
     // so anything starting with `--` is not a name.
     const name = args[0] && !args[0].startsWith('--') ? args[0] : null;
 
     if (!name) {
-        warn('Usage: knot agent create "Builder" --workspace demo [--handle builder] [--charter "…"]');
+        warn('Usage: cheto agent create "Builder" --workspace demo [--handle builder] [--charter "…"]');
 
         return 1;
     }
@@ -256,24 +256,24 @@ export async function agentCreate(args = []) {
         if (created.membership) {
             log(`  ${created.membership.mention} in ${created.membership.workspace?.slug ?? '?'}`);
             log('');
-            log(`  Next: knot agent pair ${created.membership.id}`);
+            log(`  Next: cheto agent pair ${created.membership.id}`);
         } else {
             log('  Not in a workspace yet. Add it with --workspace, or:');
-            log(`    knot agent join ${created.agent.id} --workspace demo`);
+            log(`    cheto agent join ${created.agent.id} --workspace demo`);
         }
 
         log('');
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot agent update <agent-id>` — fix an agent's details without a browser.
+ * `cheto agent update <agent-id>` — fix an agent's details without a browser.
  *
  * The two objects the panel shows on one card are two things here, and the
  * flags say which: `--name` and `--description` belong to the identity and
@@ -284,10 +284,10 @@ export async function agentUpdate(args = []) {
     const agentId = args[0] && !args[0].startsWith('--') ? args[0] : null;
 
     if (!agentId) {
-        warn('Usage: knot agent update <agent-id> [--name "Rocky"] [--description "…"]');
+        warn('Usage: cheto agent update <agent-id> [--name "Rocky"] [--description "…"]');
         warn('                                    [--workspace otro-espacio --handle rocky --charter "…"]');
         warn('                                    [--area <uuid|id>]  the board its work lands on there');
-        warn('Ids come from: knot agent list');
+        warn('Ids come from: cheto agent list');
 
         return 1;
     }
@@ -339,24 +339,24 @@ export async function agentUpdate(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot agent avatar <agent-id> <file>` — give an agent a face.
+ * `cheto agent avatar <agent-id> <file>` — give an agent a face.
  *
  * The file is read here and uploaded. Handing the server a URL to fetch would
- * be less typing and an SSRF: an avatar is not worth teaching Knot to make
+ * be less typing and an SSRF: an avatar is not worth teaching Cheto to make
  * requests on somebody else's behalf.
  */
 export async function agentAvatar(args = []) {
     const [agentId, file] = args.filter((argument) => !argument.startsWith('--'));
 
     if (!agentId || !file) {
-        warn('Usage: knot agent avatar <agent-id> ./rocky.png');
+        warn('Usage: cheto agent avatar <agent-id> ./rocky.png');
         warn('PNG, JPEG or WebP, up to 2 MB.');
 
         return 1;
@@ -376,7 +376,7 @@ export async function agentAvatar(args = []) {
     const type = MIME[extname(path).toLowerCase()];
 
     if (!type) {
-        warn(`${extname(path) || 'That file'} is not an image Knot accepts. Use PNG, JPEG or WebP.`);
+        warn(`${extname(path) || 'That file'} is not an image Cheto accepts. Use PNG, JPEG or WebP.`);
 
         return 1;
     }
@@ -397,7 +397,7 @@ export async function agentAvatar(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
@@ -411,13 +411,13 @@ const MIME = {
     '.webp': 'image/webp',
 };
 
-/** `knot agent join <agent-id> --workspace <slug|uuid>` */
+/** `cheto agent join <agent-id> --workspace <slug|uuid>` */
 export async function agentJoin(args = []) {
     const agentId = args[0];
     const workspace = flag(args, '--workspace');
 
     if (!agentId || !workspace) {
-        warn('Usage: knot agent join <agent-id> --workspace demo [--handle qa]');
+        warn('Usage: cheto agent join <agent-id> --workspace demo [--handle qa]');
 
         return 1;
     }
@@ -436,18 +436,18 @@ export async function agentJoin(args = []) {
         });
 
         log(`  ${membership.mention} in ${membership.workspace?.slug ?? '?'}  ·  membership ${membership.id}`);
-        log(`  Next: knot agent pair ${membership.id}`);
+        log(`  Next: cheto agent pair ${membership.id}`);
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
 /**
- * `knot agent pair <membership-id>` — a code for a machine to redeem.
+ * `cheto agent pair <membership-id>` — a code for a machine to redeem.
  *
  * The code is printed because it is meant to be typed into another terminal.
  * It is single-use and dies in fifteen minutes, so the copy it leaves in shell
@@ -457,7 +457,7 @@ export async function agentPair(args = []) {
     const membershipId = args[0];
 
     if (!membershipId) {
-        warn('Usage: knot agent pair <membership-id>     (knot agent list shows them)');
+        warn('Usage: cheto agent pair <membership-id>     (cheto agent list shows them)');
 
         return 1;
     }
@@ -474,25 +474,25 @@ export async function agentPair(args = []) {
         log('');
         log(`  Connect a machine to ${issued.membership.mention} in ${issued.membership.workspace?.slug ?? '?'}:`);
         log('');
-        log(`    knot connect ${issued.code}`);
+        log(`    cheto connect ${issued.code}`);
         log('');
         log(`  Single use. Expires ${new Date(issued.expires_at).toLocaleTimeString()}.`);
         log('');
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot agent disconnect <connection-id>` — disarm one machine. */
+/** `cheto agent disconnect <connection-id>` — disarm one machine. */
 export async function agentDisconnect(args = []) {
     const connectionId = args[0];
 
     if (!connectionId) {
-        warn('Usage: knot agent disconnect <connection-id>     (knot agent list shows them)');
+        warn('Usage: cheto agent disconnect <connection-id>     (cheto agent list shows them)');
 
         return 1;
     }
@@ -510,13 +510,13 @@ export async function agentDisconnect(args = []) {
 
         return 0;
     } catch (error) {
-        warn(error instanceof KnotError ? error.message : String(error));
+        warn(error instanceof ChetoError ? error.message : String(error));
 
         return 1;
     }
 }
 
-/** `knot logout --user` — forget the human credential on this machine. */
+/** `cheto logout --user` — forget the human credential on this machine. */
 export async function userLogout() {
     const session = await loadUserSession();
 
@@ -529,7 +529,7 @@ export async function userLogout() {
     const store = await forgetUserCredential(session.url);
 
     log(`Signed out. Credential removed from ${store}.`);
-    log('It still exists in Knot — revoke it there if this machine is gone for good.');
+    log('It still exists in Cheto — revoke it there if this machine is gone for good.');
 
     return 0;
 }
@@ -538,12 +538,12 @@ async function requireUser() {
     const session = await loadUserSession();
 
     if (!session) {
-        warn('Not signed in. Run: knot login');
+        warn('Not signed in. Run: cheto login');
 
         return null;
     }
 
-    return new KnotUserApi({ url: session.url, token: session.token });
+    return new ChetoUserApi({ url: session.url, token: session.token });
 }
 
 function describe(runtime) {

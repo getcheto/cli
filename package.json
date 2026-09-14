@@ -1,22 +1,22 @@
 {
-    "name": "@knot/bridge",
+    "name": "@cheto/cli",
     "version": "0.1.0",
-    "description": "Connects a machine's coding agent to a Knot workspace.",
+    "description": "Connects a machine's coding agent to a Cheto workspace.",
     "type": "module",
     "bin": {
-        "knot": "./bin/knot.js"
+        "cheto": "./bin/cheto.js"
     },
     "files": [
         "bin",
         "src",
         "README.md",
-        "knot.example.yml"
+        "cheto.example.yml"
     ],
     "engines": {
         "node": ">=20"
     },
     "scripts": {
-        "knot": "node bin/knot.js",
+        "cheto": "node bin/cheto.js",
         "test": "node --test \"test/*.test.js\""
     },
     "license": "MIT"

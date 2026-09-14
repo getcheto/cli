@@ -1,7 +1,7 @@
 /**
  * When this machine is allowed to start work.
  *
- * A local policy, deliberately. Knot does not decide when somebody's laptop is
+ * A local policy, deliberately. Cheto does not decide when somebody's laptop is
  * allowed to run a model: the server has no idea that this machine is a work
  * laptop that closes at midnight, and encoding that on the Agent would make one
  * person's evening a property of a shared identity.
@@ -78,14 +78,14 @@ function parseClock(value, label) {
     const match = /^(\d{1,2}):(\d{2})$/.exec(String(value).trim());
 
     if (!match) {
-        throw new Error(`knot.yml: schedule.${label} should look like "08:00", got "${value}"`);
+        throw new Error(`cheto.yml: schedule.${label} should look like "08:00", got "${value}"`);
     }
 
     const hours = Number(match[1]);
     const minutes = Number(match[2]);
 
     if (hours > 24 || minutes > 59) {
-        throw new Error(`knot.yml: schedule.${label} "${value}" is not a time of day`);
+        throw new Error(`cheto.yml: schedule.${label} "${value}" is not a time of day`);
     }
 
     return hours * 60 + minutes;
