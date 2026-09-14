@@ -439,6 +439,185 @@ export async function taskType(args = []) {
 }
 
 /**
+ * `knot task create` — write something down from here.
+ *
+ * The command that was missing, and its absence was not a decision anybody
+ * made: an agent could verify, accept, comment on and re-type a task from this
+ * terminal but not write one, so anything it wanted to record had to go through
+ * curl or through a runtime pass. The API has taken a task since v1.
+ *
+ * `--area` is the flag worth knowing. Without it the task lands on the agent's
+ * own board when its membership names one, and on the workspace's first board
+ * when it does not — so on a workspace with fourteen boards, an agent that never
+ * says lands everything in the same place.
+ *
+ *   knot task create "El cliente acepta o rechaza" --area marketing-reels
+ *   knot task create "Falla el alta" --area backlog-tecnico --column "Esperando"
+ */
+export async function taskCreate(args = []) {
+    const title = args.filter((argument) => !argument.startsWith('--'))[0];
+
+    if (!title) {
+        warn('Usage: knot task create "What it is" [--area <name|slug|id>] [--column "Name"]');
+        warn('                       [--type bug] [--priority high] [--due 2026-09-30] [--tag reel]');
+        warn('Boards come from: knot areas');
+
+        return 1;
+    }
+
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    const api = new KnotApi({ url: session.url, token: session.token });
+
+    try {
+        const placement = await placementFor(api, flag(args, '--area'), flag(args, '--column'));
+
+        const body = {
+            title,
+            ...placement,
+            ...optional('description', flag(args, '--description')),
+            ...optional('type', flag(args, '--type')),
+            ...optional('priority', flag(args, '--priority')),
+            ...optional('due_on', flag(args, '--due')),
+            ...optional('status', flag(args, '--status')),
+        };
+
+        const tags = args.reduce((found, argument, index) => (argument === '--tag' && args[index + 1] ? [...found, args[index + 1]] : found), []);
+
+        if (tags.length > 0) {
+            body.tags = tags;
+        }
+
+        // Keyed by what the task is, not by the clock: a pass that runs twice
+        // on the same idea has to produce one task, which is what a retry means.
+        const { data } = await api.createTask(body, `knot-create-${slugify(title)}`);
+
+        log(`${data.key}  ${data.title}`);
+        log(`  on ${areaNameOf(data)}${data.board_status ? ` · ${data.board_status.name}` : ''}`);
+
+        return 0;
+    } catch (error) {
+        warn(error instanceof KnotError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
+/**
+ * `knot areas` — the boards of this workspace, and which one is this agent's.
+ *
+ * Here because `--area` needs somewhere to read its argument from, and because
+ * "where does my work go" is a question an agent's operator asks before the
+ * first task and never again.
+ */
+export async function areas(args = []) {
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    const api = new KnotApi({ url: session.url, token: session.token });
+
+    try {
+        const me = await api.me();
+        const home = me.membership?.area ?? null;
+
+        if (args.includes('--json')) {
+            log(JSON.stringify({ home, areas: me.areas ?? [] }, null, 2));
+
+            return 0;
+        }
+
+        log('');
+
+        (me.areas ?? []).forEach((area) => {
+            const mine = home && area.id === home.id;
+
+            log(`  ${mine ? '*' : ' '} ${String(area.id).padEnd(4)} ${area.slug.padEnd(28)} ${area.name}`);
+            log(`       ${(area.statuses ?? []).map((column) => column.name).join(' · ')}`);
+        });
+
+        log('');
+        log(home ? `  * is this agent's own board. Work it creates lands there unless it says otherwise.` : '  This agent has no board of its own: work it creates lands on the first one.');
+        log('');
+
+        return 0;
+    } catch (error) {
+        warn(error instanceof KnotError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
+/**
+ * A board, and optionally one of its columns, as the fields the API takes.
+ *
+ * Named in words here and resolved against what this credential can actually
+ * see, so a board that does not exist **fails** with the list of ones that do.
+ * The server used to take an unknown id and file the task on the first board
+ * instead, which is how three hundred tasks ended up in the wrong place.
+ */
+async function placementFor(api, area, column) {
+    if (!area) {
+        if (column) {
+            throw new KnotError('A column belongs to a board, so --column needs --area as well. Run: knot areas');
+        }
+
+        return {};
+    }
+
+    const wanted = String(area).trim().toLowerCase();
+    const boards = await api.areas();
+
+    const board =
+        boards.find((candidate) => String(candidate.id) === wanted) ??
+        boards.find((candidate) => String(candidate.slug ?? '').toLowerCase() === wanted) ??
+        boards.find((candidate) => String(candidate.name ?? '').toLowerCase() === wanted);
+
+    if (!board) {
+        throw new KnotError(`No board called "${area}" here. There is: ${boards.map((one) => one.slug).join(', ') || 'none'}.`);
+    }
+
+    if (!column) {
+        return { work_area_id: board.id };
+    }
+
+    const named = String(column).trim().toLowerCase();
+    const match = (board.statuses ?? []).find(
+        (candidate) => String(candidate.name ?? '').toLowerCase() === named || String(candidate.key ?? '').toLowerCase() === named,
+    );
+
+    if (!match) {
+        throw new KnotError(`"${board.name}" has no column called "${column}". It has: ${(board.statuses ?? []).map((one) => one.name).join(', ')}.`);
+    }
+
+    // The column alone: it names its own board, and sending both is two chances
+    // to disagree, which the server refuses rather than guesses at.
+    return { work_area_status_id: match.id };
+}
+
+function areaNameOf(task) {
+    return (task.areas ?? []).find((placement) => placement.is_home)?.area?.name ?? `area ${task.work_area_id}`;
+}
+
+function optional(field, value) {
+    return value ? { [field]: value } : {};
+}
+
+function slugify(value) {
+    return String(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60);
+}
+
+/**
  * `knot memory` — what the workspace knows, as against what it said.
  *
  * The third thing an agent needs, after a bounded read and a way to search:

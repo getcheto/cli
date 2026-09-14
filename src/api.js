@@ -142,6 +142,23 @@ export class KnotApi {
     }
 
     /**
+     * Write something down.
+     *
+     * `work_area_id` is the field worth naming: without it a task lands on the
+     * agent's own board if its membership has one, and on the workspace's first
+     * board if not — which for an agent that works on one board and never says
+     * so is how everything it writes ends up somewhere else.
+     */
+    createTask(body, idempotencyKey) {
+        return this.request('/tasks', { method: 'POST', body, idempotencyKey });
+    }
+
+    /** The boards of this workspace, from the identity call that already lists them. */
+    async areas() {
+        return (await this.me()).areas ?? [];
+    }
+
+    /**
      * Say what a thing *is*. Not what should happen to it.
      *
      * The describing half of triage, which an agent may do; deciding it is
