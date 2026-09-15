@@ -1,0 +1,142 @@
+name: Release
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+        inputs:
+            bump:
+                description: How to bump. major is manual only.
+                type: choice
+                options: [auto, patch, minor, major]
+                default: auto
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+    id-token: write
+
+jobs:
+    release:
+        if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message || '', '[skip release]') }}
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  registry-url: https://registry.npmjs.org
+
+            - run: npm test
+
+            - name: Compute version
+              id: ver
+              env:
+                  BUMP_INPUT: ${{ github.event.inputs.bump || 'auto' }}
+              run: |
+                  set -euo pipefail
+                  git fetch --tags --force
+                  current=$(node -p "require('./package.json').version")
+                  last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+                  last=${last#v}
+
+                  if [ -z "$last" ]; then
+                    echo "version=$current" >> "$GITHUB_OUTPUT"
+                    echo "tag=v$current" >> "$GITHUB_OUTPUT"
+                    echo "First release will be v$current"
+                    exit 0
+                  fi
+
+                  bump="$BUMP_INPUT"
+                  if [ "$bump" = "auto" ]; then
+                    if git log "v$last"..HEAD --pretty=%s | grep -qiE '^feat(\(.+\))?:'; then
+                      bump=minor
+                    else
+                      bump=patch
+                    fi
+                  fi
+
+                  IFS=. read -r major minor patch <<EOF
+                  $last
+                  EOF
+
+                  case "$bump" in
+                    major)
+                      major=$((major + 1))
+                      minor=0
+                      patch=0
+                      ;;
+                    minor)
+                      minor=$((minor + 1))
+                      patch=0
+                      ;;
+                    patch)
+                      patch=$((patch + 1))
+                      ;;
+                    *)
+                      echo "unknown bump $bump"
+                      exit 1
+                      ;;
+                  esac
+
+                  version="$major.$minor.$patch"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+                  echo "tag=v$version" >> "$GITHUB_OUTPUT"
+                  echo "Bumping $last -> $version ($bump)"
+
+            - name: Tag and GitHub Release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ steps.ver.outputs.version }}
+                  TAG: ${{ steps.ver.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  if git rev-parse "$TAG" >/dev/null 2>&1; then
+                    echo "$TAG already exists"
+                    exit 0
+                  fi
+
+                  node -e '
+                    const fs = require("fs");
+                    const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+                    p.version = process.env.VERSION;
+                    fs.writeFileSync("package.json", JSON.stringify(p, null, 4) + "\n");
+                  '
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add package.json
+                  if git diff --cached --quiet; then
+                    echo "package.json already at $VERSION"
+                  else
+                    git commit -m "chore: release $TAG [skip release]"
+                    git push
+                  fi
+
+                  if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+                    notes=$(git log --pretty='- %s' "$(git describe --tags --abbrev=0)"..HEAD)
+                  else
+                    notes=$(git log --pretty='- %s' -20)
+                  fi
+                  git tag -a "$TAG" -m "$TAG"
+                  git push origin "$TAG"
+                  gh release create "$TAG" --title "$TAG" --notes "$notes"
+
+            - name: Publish to npm
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+                  VERSION: ${{ steps.ver.outputs.version }}
+              run: |
+                  set -euo pipefail
+                  name=$(node -p "require('./package.json').name")
+                  if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+                    echo "$name@$VERSION is already on npm"
+                    exit 0
+                  fi
+                  npm publish --access public --provenance
