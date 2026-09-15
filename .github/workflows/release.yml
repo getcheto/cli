@@ -6,10 +6,14 @@ on:
     workflow_dispatch:
         inputs:
             bump:
-                description: How to bump. major is manual only.
+                description: Auto is patch, or minor on feat. Never major.
                 type: choice
-                options: [auto, patch, minor, major, current]
+                options: [auto, patch, minor, current]
                 default: auto
+            confirm_major:
+                description: Type MAJOR to cut a major. Empty otherwise. Ignored on push.
+                required: false
+                default: ''
 
 concurrency:
     group: release
@@ -39,6 +43,8 @@ jobs:
               id: ver
               env:
                   BUMP_INPUT: ${{ github.event.inputs.bump || 'auto' }}
+                  CONFIRM_MAJOR: ${{ github.event.inputs.confirm_major || '' }}
+                  EVENT_NAME: ${{ github.event_name }}
               run: |
                   set -euo pipefail
                   git fetch --tags --force
@@ -47,6 +53,17 @@ jobs:
                   last=${last#v}
 
                   bump="$BUMP_INPUT"
+
+                  # Push never majors. A BREAKING commit still lands as minor or patch.
+                  if [ "$EVENT_NAME" = "push" ]; then
+                    bump=auto
+                  elif [ "$CONFIRM_MAJOR" = "MAJOR" ]; then
+                    bump=major
+                  elif [ "$bump" = "major" ]; then
+                    echo "major refused: type MAJOR in confirm_major"
+                    exit 1
+                  fi
+
                   if [ "$bump" = "current" ]; then
                     echo "version=$current" >> "$GITHUB_OUTPUT"
                     echo "tag=v$current" >> "$GITHUB_OUTPUT"
@@ -61,7 +78,6 @@ jobs:
                     exit 0
                   fi
 
-                  bump="$BUMP_INPUT"
                   if [ "$bump" = "auto" ]; then
                     if git log "v$last"..HEAD --pretty=%s | grep -qiE '^feat(\(.+\))?:'; then
                       bump=minor
