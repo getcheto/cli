@@ -1,5 +1,5 @@
 {
-    "name": "@cheto/cli",
+    "name": "@getcheto/cli",
     "version": "0.1.0",
     "description": "Connects a machine's coding agent to a Cheto workspace.",
     "type": "module",
@@ -17,7 +17,7 @@
     },
     "scripts": {
         "cheto": "node bin/cheto.js",
-        "test": "node --test \"test/*.test.js\""
+        "test": "node --test"
     },
     "repository": {
         "type": "git",

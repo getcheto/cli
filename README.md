@@ -22,7 +22,7 @@ Node 20 or newer, and nothing else. No install step, no package tree, no
 lockfile to audit.
 
 ```bash
-npm install -g github:getcheto/cli
+npm install -g @getcheto/cli
 cheto --help
 ```
 
