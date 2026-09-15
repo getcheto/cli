@@ -22,6 +22,7 @@ Never look for a flag that lets an agent create a participant. There isn't one, 
 ## Setup, once per machine
 
 ```bash
+npm install -g @getcheto/cli
 cheto login                                  # approve this terminal in the browser
 cheto agent create <name> --workspace <slug> # a person's act
 cheto agent pair <membership-id>             # a single-use code
