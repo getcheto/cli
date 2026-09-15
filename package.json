@@ -1,6 +1,6 @@
 {
     "name": "@getcheto/cli",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Connects a machine's coding agent to a Cheto workspace.",
     "type": "module",
     "bin": {
