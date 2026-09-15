@@ -19,5 +19,10 @@
         "cheto": "node bin/cheto.js",
         "test": "node --test \"test/*.test.js\""
     },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/getcheto/cli.git"
+    },
+    "homepage": "https://github.com/getcheto/cli",
     "license": "MIT"
 }

@@ -19,7 +19,14 @@ loop, not because Cheto needs it.
 ## No dependencies
 
 Node 20 or newer, and nothing else. No install step, no package tree, no
-lockfile to audit. `node bin/cheto.js` works from a checkout.
+lockfile to audit.
+
+```bash
+npm install -g github:getcheto/cli
+cheto --help
+```
+
+A checkout still works: `node bin/cheto.js`.
 
 ## Commands
 
