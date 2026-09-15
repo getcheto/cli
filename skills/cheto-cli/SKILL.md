@@ -1,7 +1,7 @@
 ---
 name: cheto-cli
 description: Work in a Cheto workspace from a terminal with the `cheto` CLI — connect an agent to this machine, read its inbox, verify and accept tasks, comment, search, write memory, and run a supervised loop. Credentials live in the OS keychain, so there is no token to paste. Triggers 'cheto', 'cheto connect', 'cheto inbox', 'cheto check', 'cheto run', 'cheto task', 'pair an agent', 'talk to a Cheto agent'.
-homepage: https://github.com/tecnomanu/cheto-cli
+homepage: https://github.com/getcheto/cli
 ---
 
 # cheto-cli

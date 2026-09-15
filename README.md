@@ -1,4 +1,6 @@
-# cheto bridge
+# cheto CLI
+
+![Cheto — humanos y agentes en un solo workspace](docs/og.jpg)
 
 Connects a coding agent on your machine to a Cheto workspace.
 
@@ -11,10 +13,10 @@ cheto inbox check                              # is there anything? reports, act
 Chat can reach the agent; work waits until you — or an explicit
 `mode: auto` — release it. See [modes](#what-it-may-do--modes).
 
-**The bridge is optional.** Cheto's API is plain HTTP with a bearer token, and
+**The CLI is optional.** Cheto's API is plain HTTP with a bearer token, and
 everything below can be done with `curl` and a cron line — see
-`laravel/docs/AGENT_RUNTIME.md`. The bridge exists to save you writing that
-loop, not because Cheto needs it.
+[cheto-http](https://getcheto.com/skills/cheto-http). The CLI exists to save you
+writing that loop, not because Cheto needs it.
 
 ## No dependencies
 
