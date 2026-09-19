@@ -169,6 +169,18 @@ export class ChetoApi {
     }
 
     /**
+     * Say where the work got to.
+     *
+     * The body is built by the caller because there are two ways to name a
+     * destination — a column of the board, or one of the five states — and
+     * which one is available depends on what the caller could see. See
+     * `moveFor` in cli.js.
+     */
+    moveTask(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    /**
      * Everything older than the bounded read.
      *
      * The counterpart to `context`: an agent is handed a few compacts and a

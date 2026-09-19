@@ -438,6 +438,187 @@ export async function taskType(args = []) {
     }
 }
 
+/** The five states underneath every board, whatever a team calls its columns. */
+const TASK_STATUSES = ['inbox', 'ready', 'in_progress', 'review'];
+
+/**
+ * `cheto task move <id> "<column>"` — say where the work got to.
+ *
+ * The verb that was missing, and its absence had a cost somebody paid: on
+ * 2026-09-18 an agent produced four reels, uploaded them, scheduled eight posts
+ * and then could not say so. It commented the post ids on four tasks and left
+ * them where they were, because commenting was the only thing it could do. The
+ * board said "Listo" for work that was finished.
+ *
+ * Every other surface could already do this. The API has taken a status since
+ * v1 and takes an exact column now; the MCP has had `cheto_task_status` since
+ * 0.2.0. Only the terminal could not, so an agent living in a shell had to
+ * reach for curl or give up. Most gave up.
+ *
+ * Two vocabularies, one move, and both are accepted here because agents are
+ * written by people who think in either:
+ *
+ *   cheto task move 412 "Realizados — A postear"     # the board's own words
+ *   cheto task move 412 review                       # the five states
+ *
+ * What it will not do is close anything. `done`, and any column that MEANS
+ * done however it is spelled, is refused here before the request is made —
+ * with the reason, because an agent that gets a bare 403 tries again. That
+ * rule is not this command's to relax: finishing is a claim, done is a
+ * judgement, and the owner makes it.
+ */
+export async function taskMove(args = []) {
+    const [id, ...rest] = args.filter((argument) => !argument.startsWith('--'));
+    const wanted = rest.join(' ').trim();
+
+    if (!id || !wanted) {
+        warn('Usage: cheto task move <task-id> "<column>"');
+        warn(`       cheto task move <task-id> <${TASK_STATUSES.join('|')}>`);
+        warn('Columns come from: cheto areas');
+
+        return 1;
+    }
+
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    const api = new ChetoApi({ url: session.url, token: session.token });
+
+    try {
+        const { data: task } = await api.task(id);
+        const body = await moveFor(api, task, wanted);
+
+        // Keyed by where it is going, not by the clock: a pass that runs twice
+        // deciding the same move has to be one write.
+        const { data: moved } = await api.moveTask(id, body, `cheto-move-${id}-${slugify(wanted)}`);
+
+        return reportMove(moved, body, wanted);
+    } catch (error) {
+        warn(error instanceof ChetoError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
+/**
+ * What to send for "put it here", from whatever the caller typed.
+ *
+ * Reads the task first because a column belongs to a board and the task
+ * already knows which board it is on — asking for `--area` as well would be
+ * asking the caller to repeat something we can look up, and every repetition
+ * is a chance to name the wrong one.
+ *
+ * Sends the column *and* the status it means. The column is what this wants:
+ * it names one specific card position, and a board with two columns of the
+ * same meaning has two right answers that `status` cannot tell apart. The
+ * status rides along so that a terminal on this version still moves work
+ * against a Cheto that predates the endpoint reading `work_area_status_id` —
+ * it lands a column over rather than not at all, and `report` says which.
+ */
+export async function moveFor(api, task, wanted) {
+    const named = wanted.toLowerCase();
+
+    if (task.work_area_id === null || task.work_area_id === undefined) {
+        if (TASK_STATUSES.includes(named)) {
+            return { status: named };
+        }
+
+        throw new ChetoError(
+            `Task ${task.key ?? task.id} is not on any board, so it has no columns to move between. ` +
+                `Name one of ${TASK_STATUSES.join(', ')} instead, or ask somebody to put it on a board.`,
+        );
+    }
+
+    const boards = await api.areas();
+    const board = boards.find((candidate) => String(candidate.id) === String(task.work_area_id));
+
+    if (!board) {
+        // The agent can see the task but not the board it is on. Falling back
+        // to the five states is better than refusing: the move it asked for
+        // still happens, and by a route that needs no board.
+        if (TASK_STATUSES.includes(named)) {
+            return { status: named };
+        }
+
+        throw new ChetoError(`This credential cannot see the board task ${task.key ?? task.id} is on, so "${wanted}" cannot be resolved to a column. Name one of ${TASK_STATUSES.join(', ')} instead.`);
+    }
+
+    const columns = board.statuses ?? [];
+    const match =
+        columns.find((candidate) => String(candidate.name ?? '').toLowerCase() === named) ??
+        columns.find((candidate) => String(candidate.key ?? '').toLowerCase() === named);
+
+    if (!match) {
+        // A bare status word is a legitimate way to say this, and on a board
+        // whose columns are renamed it is the only one the caller may know.
+        if (TASK_STATUSES.includes(named)) {
+            return { status: named };
+        }
+
+        throw new ChetoError(
+            `"${board.name}" has no column called "${wanted}". It has: ${columns.map((one) => one.name).join(', ')}.`,
+        );
+    }
+
+    const category = categoryOf(match);
+
+    // The same refusal the server makes, made here so the answer is a sentence
+    // rather than a bare 403. A team that renamed Done to "Posteados" has not
+    // created a way around the rule, and an agent told only "forbidden" will
+    // try the next column along.
+    if (category === 'done') {
+        throw new ChetoError(
+            `"${match.name}" is a done column of "${board.name}", and an agent may never close its own work — whatever the column is called. ` +
+                `Move it to review and say so: cheto task comment ${task.id} "..."`,
+        );
+    }
+
+    return { work_area_status_id: match.id, ...(category ? { status: category } : {}) };
+}
+
+/**
+ * Say where the card actually ended up, which is not always where it was sent.
+ *
+ * The check exists because the failure this command was written for was a
+ * silent one: a field that validated, a 200, and a card that never moved. A
+ * client that reports success on the strength of a 2xx would reproduce exactly
+ * that, one layer up — so this reads the column out of the answer and compares
+ * it to what was asked for.
+ */
+export function reportMove(moved, body, wanted) {
+    const landed = moved.board_status;
+
+    if (!landed) {
+        // An older Cheto does not say where the card went. The status is all
+        // there is, so report that and claim nothing about the column.
+        log(`Task ${moved.key ?? moved.id} is now ${moved.status?.value ?? 'moved'}.`);
+
+        return 0;
+    }
+
+    log(`${moved.key ?? moved.id}  ${moved.title ?? ''}`.trimEnd());
+    log(`  now in ${landed.name}  (${moved.status?.value})`);
+
+    if (body.work_area_status_id && String(landed.id) !== String(body.work_area_status_id)) {
+        warn(`  asked for "${wanted}" and it landed in "${landed.name}" instead — this Cheto moves a card by what a column means, not by which one it is.`);
+        warn('  Upgrade the server, or ask somebody to drag it the rest of the way.');
+
+        return 1;
+    }
+
+    return 0;
+}
+
+/** A column's meaning, which the API sends as an object and older ones as a string. */
+function categoryOf(column) {
+    const category = column?.category;
+
+    return typeof category === 'string' ? category : (category?.value ?? null);
+}
+
 /**
  * `cheto task create` — write something down from here.
  *

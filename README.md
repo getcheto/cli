@@ -69,6 +69,9 @@ the shape that still works there.
 | `cheto task verify <id>` | Is this task real, mine, and actionable now? |
 | `cheto task accept <id>` | Verify it, then say yes to it |
 | `cheto task comment <id> <text>` | Say something where the work is |
+| `cheto task move <id> "<column>"` | Say where the work got to — a column name, or one of the five states |
+| `cheto task create "<title>"` | Write something down  `[--area]` `[--column]` `[--type]` `[--tag]` |
+| `cheto task type <id> <type>` | File it as what it actually is |
 | `cheto status` | Who am I, where am I, what mode am I in, is there work |
 | `cheto check` | One pass: heartbeat, read the inbox, hand over what the mode allows |
 | `cheto run` | The same, in a loop, waiting on the server between passes |

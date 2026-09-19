@@ -43,6 +43,7 @@ import {
     taskAccept,
     taskComment,
     taskCreate,
+    taskMove,
     taskType,
     taskVerify,
 } from '../src/cli.js';
@@ -91,6 +92,7 @@ const GROUPS = {
         verify: taskVerify,
         accept: taskAccept,
         comment: taskComment,
+        move: taskMove,
         type: taskType,
     },
 };
@@ -136,6 +138,8 @@ function usage() {
     cheto task verify <id>         Is this task real, mine, and actionable now?
     cheto task accept <id>         Verify it, then say yes to it
     cheto task comment <id> <text> Say something on the task
+    cheto task move <id> "<col>"   Say where the work got to  (a column name,
+                                  or inbox|ready|in_progress|review)
     cheto task type <id> <type>    File it as what it is  (task, feature, bug,
                                   chore, epic, idea)
     cheto check                    One pass: heartbeat, inbox, hand over what the
