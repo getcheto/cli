@@ -468,7 +468,10 @@ const TASK_STATUSES = ['inbox', 'ready', 'in_progress', 'review'];
  * judgement, and the owner makes it.
  */
 export async function taskMove(args = []) {
-    const [id, ...rest] = args.filter((argument) => !argument.startsWith('--'));
+    // Strip option values as well as option names: otherwise `--agent ceo`
+    // is accidentally appended to the requested column name.
+    const positional = args.filter((argument, index) => !argument.startsWith('--') && !(index > 0 && args[index - 1] === '--agent'));
+    const [id, ...rest] = positional;
     const wanted = rest.join(' ').trim();
 
     if (!id || !wanted) {
