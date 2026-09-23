@@ -3,11 +3,12 @@
  *
  * The human half of the MCP server's tool set (`@getcheto/mcp`, human tools),
  * on the person's own login from `cheto login` and the `/api/v1/cli` surface.
- * None of this goes through an agent, and nothing here takes `--agent`:
  *
- *   - Boards and columns (`cheto area …`, `cheto column …`) are human-only.
- *     `WorkAreaPolicy` refuses every agent, so there is no agent version to
- *     confuse them with.
+ *   - Boards and columns (`cheto area …`, `cheto column …`) are the one place
+ *     both principals share a verb, so which one speaks is decided by a rule
+ *     (`boardSurface`): `--agent`/`CHETO_AGENT` given → that agent, on
+ *     `/api/v1/agent/areas` (needs its `boards.manage` capability); otherwise
+ *     your login when you are signed in; otherwise the agent paired here.
  *   - Tasks are the one noun both principals act on, so the person's verbs sit
  *     under `cheto user task …`. `cheto task …` is always an agent speaking;
  *     `cheto user task …` is always you. A task filed there is created by you,
@@ -19,8 +20,10 @@
  */
 
 import { ChetoError } from './api.js';
-import { taskRef } from './agent-commands.js';
-import { flag, flags, positionals } from './cli.js';
+import { isNobody, taskRef } from './agent-commands.js';
+import { apiFor } from './clients.js';
+import { agentFlag, flag, flags, positionals, requireSession } from './cli.js';
+import { listAgentSessions, loadUserSession } from './credentials.js';
 import { requireUser } from './human.js';
 
 const log = (...args) => console.log(...args);
@@ -32,14 +35,21 @@ const CATEGORIES = ['inbox', 'ready', 'in_progress', 'review', 'done'];
 
 /** `cheto area list --workspace <slug>` — boards and their columns, with the ids the other commands take. */
 export async function areaList(args = []) {
-    return withUser(args, async (api) => {
-        const query = new URLSearchParams({ workspace: workspaceOf(args) });
+    return withBoard(args, async (api, as) => {
+        let answer;
 
-        if (args.includes('--archived')) {
-            query.set('archived', '1');
+        if (as === 'agent') {
+            // The agent surface lists its boards on the identity call.
+            answer = { data: await api.areas() };
+        } else {
+            const query = new URLSearchParams({ workspace: workspaceOf(args) });
+
+            if (args.includes('--archived')) {
+                query.set('archived', '1');
+            }
+
+            answer = await api.areas(query);
         }
-
-        const answer = await api.areas(query);
 
         if (args.includes('--json')) {
             log(JSON.stringify(answer, null, 2));
@@ -49,7 +59,7 @@ export async function areaList(args = []) {
 
         log('');
         (answer.data ?? []).forEach((area) => {
-            log(`  ${area.name}  (${area.slug})  ·  area ${area.id}  ·  ${area.uuid ?? ''}`.trimEnd());
+            log(`  ${[`${area.name}  (${area.slug})`, `area ${area.id}`, area.uuid].filter(Boolean).join('  ·  ')}`);
             log(`    ${(area.statuses ?? []).map((column) => `${column.name} [${column.id}, ${categoryOf(column)}]`).join('  ·  ')}`);
         });
         log('');
@@ -69,7 +79,8 @@ export async function areaCreate(args = []) {
     const [name] = positionals(args);
 
     if (!name) {
-        warn('Usage: cheto area create "Name" --workspace <slug> [--description "…"] [--color] [--icon]');
+        warn('Usage: cheto area create "Name" [--workspace <slug>] [--description "…"] [--color] [--icon]');
+        warn('       --workspace is needed as you; an agent (--agent) is already in one.');
         warn(`                         [--column "Name:<${CATEGORIES.join('|')}>"]...  (left to right)`);
 
         return 1;
@@ -85,9 +96,10 @@ export async function areaCreate(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api, as) => {
         const body = {
-            workspace: workspaceOf(args),
+            // An agent is in exactly one workspace; the person names one.
+            ...(as === 'user' ? { workspace: workspaceOf(args) } : {}),
             name,
             ...optional('description', flag(args, '--description')),
             ...optional('color', flag(args, '--color')),
@@ -120,7 +132,7 @@ export async function areaUpdate(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api) => {
         await api.updateArea(area, body);
 
         log(`Updated board ${area}.`);
@@ -141,7 +153,7 @@ export async function columnAdd(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api) => {
         await api.addColumn(area, { name, category });
 
         log(`Added "${name}" (${category}) to board ${area}.`);
@@ -163,7 +175,7 @@ export async function columnUpdate(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api) => {
         await api.updateColumn(area, column, body);
 
         log(`Updated column ${column}.`);
@@ -182,7 +194,7 @@ export async function columnReorder(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api) => {
         await api.reorderColumns(area, order.map(Number));
 
         log(`Reordered the columns of board ${area}.`);
@@ -203,7 +215,7 @@ export async function columnRemove(args = []) {
         return 1;
     }
 
-    return withUser(args, async (api) => {
+    return withBoard(args, async (api) => {
         await api.removeColumn(area, column, Number(into));
 
         log(`Removed column ${column}; its tasks are in column ${into}.`);
@@ -286,10 +298,12 @@ export async function userTaskUpdate(args = []) {
     const [id] = positionals(args);
     const body = { ...describing(args), ...optional('status', flag(args, '--status')) };
     const column = flag(args, '--column');
+    const assignee = flag(args, '--assignee');
 
-    if (!id || (Object.keys(body).length === 0 && !column)) {
+    if (!id || (Object.keys(body).length === 0 && !column && assignee === null)) {
         warn('Usage: cheto user task update <task-id> --workspace <slug> [--column "Name" [--area …]] [--status]');
-        warn('                                        [--title] [--description] [--type] [--priority] [--due|none]');
+        warn('                                        [--title] [--description] [--type] [--priority] [--due YYYY-MM-DD|none]');
+        warn('                                        [--assignee me|@agent|user:<id>|agent:<id>|none]');
         warn('                                        [--tag]... (replaces every tag) [--requires-human|--no-requires-human]');
 
         return 1;
@@ -308,6 +322,10 @@ export async function userTaskUpdate(args = []) {
             Object.assign(body, placement);
         }
 
+        if (assignee !== null) {
+            Object.assign(body, await actorFields(api, args, assignee, 'assignee'));
+        }
+
         const answer = await api.updateTask(task, body, `cheto-user-update-${task}-${slug(JSON.stringify(body))}`);
 
         log(`Updated ${answer?.data?.key ?? `task ${task}`}.`);
@@ -316,7 +334,7 @@ export async function userTaskUpdate(args = []) {
     });
 }
 
-/** `cheto user task delete <id>` — off the board for good (a soft delete). Only a person may. */
+/** `cheto user task delete <id>` — off the board for good (a soft delete). An agent needs `tasks.delete` for the same. */
 export async function userTaskDelete(args = []) {
     const [id] = positionals(args);
 
@@ -374,6 +392,48 @@ export async function agentToken(args = []) {
 
 // ── Shared ────────────────────────────────────────────
 
+/**
+ * Who reshapes a board: `'agent'` or `'user'`.
+ *
+ *   1. `--agent` or `CHETO_AGENT` names an agent → that agent.
+ *   2. Signed in with `cheto login` → you.
+ *   3. Not signed in, but an agent is paired here → that agent.
+ *
+ * Explicit beats implicit, and a person signed in is never silently turned
+ * into one of their agents: the audit trail would name the wrong actor.
+ */
+export async function boardSurface(args = []) {
+    if (agentFlag(args)) {
+        return 'agent';
+    }
+
+    if (await loadUserSession()) {
+        return 'user';
+    }
+
+    return (await listAgentSessions()).length > 0 ? 'agent' : 'user';
+}
+
+async function withBoard(args, work) {
+    if ((await boardSurface(args)) === 'user') {
+        return withUser(args, (api) => work(api, 'user'));
+    }
+
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    try {
+        return (await work(apiFor(session), 'agent')) ?? 0;
+    } catch (error) {
+        warn(error instanceof ChetoError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
 async function withUser(args, work) {
     const api = await requireUser();
 
@@ -390,7 +450,7 @@ async function withUser(args, work) {
     }
 }
 
-function workspaceOf(args) {
+export function workspaceOf(args) {
     const workspace = flag(args, '--workspace') ?? process.env.CHETO_WORKSPACE ?? null;
 
     if (!workspace || String(workspace).trim() === '') {
@@ -401,7 +461,7 @@ function workspaceOf(args) {
 }
 
 /** What a task says about itself, from flags. Shared by create and update. */
-function describing(args) {
+export function describing(args) {
     const body = {
         ...optional('title', flag(args, '--title')),
         ...optional('description', flag(args, '--description')),
@@ -428,6 +488,63 @@ function describing(args) {
     }
 
     return body;
+}
+
+/**
+ * Somebody, named by the person, as the `{<prefix>_type, <prefix>_id}` pair the API takes.
+ *
+ *   none              nobody (only for an assignee)
+ *   me                you
+ *   user:12 agent:9   by id, for anybody in the workspace
+ *   @rocky            one of YOUR agents, by its handle in --workspace (or its address)
+ *
+ * The person's surface has no participant list, so a colleague is named by
+ * id; the server still checks they are in the task's workspace.
+ */
+export async function actorFields(api, args, who, prefix) {
+    const wanted = String(who).trim();
+
+    if (isNobody(wanted)) {
+        if (prefix !== 'assignee') {
+            throw new ChetoError(`A ${prefix} has to be somebody.`);
+        }
+
+        return { [`${prefix}_type`]: null, [`${prefix}_id`]: null };
+    }
+
+    const typed = /^(user|agent):(\d+)$/i.exec(wanted);
+
+    if (typed) {
+        return { [`${prefix}_type`]: typed[1].toLowerCase(), [`${prefix}_id`]: Number(typed[2]) };
+    }
+
+    if (wanted.toLowerCase() === 'me') {
+        const { user } = await api.me();
+
+        return { [`${prefix}_type`]: 'user', [`${prefix}_id`]: user.id };
+    }
+
+    const workspace = workspaceOf(args);
+    const handle = wanted.replace(/^@/, '').toLowerCase();
+    const { data: agents = [] } = await api.agents();
+
+    for (const agent of agents) {
+        if (String(agent.address ?? '').toLowerCase() === handle && (agent.memberships ?? []).length > 0) {
+            return { [`${prefix}_type`]: 'agent', [`${prefix}_id`]: agent.id };
+        }
+
+        const here = (agent.memberships ?? []).find(
+            (membership) =>
+                String(membership.handle ?? '').toLowerCase() === handle &&
+                [membership.workspace?.slug, membership.workspace?.uuid].some((one) => String(one ?? '').toLowerCase() === workspace.toLowerCase()),
+        );
+
+        if (here) {
+            return { [`${prefix}_type`]: 'agent', [`${prefix}_id`]: agent.id };
+        }
+    }
+
+    throw new ChetoError(`None of your agents answers to "${who}" in ${workspace}. Name a colleague as user:<id> or agent:<id>, yourself as me.`);
 }
 
 function parseColumn(value) {

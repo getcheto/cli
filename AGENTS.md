@@ -25,8 +25,11 @@ The folder is `cli/`. The npm package is `@getcheto/cli`. The binary is `cheto`.
   `cheto_ak_…` (`cheto connect`) does the work. An agent credential creating an
   agent is a 403, always. A person's login may also do an agent's work, but only
   as a named agent they own (`--agent` / `CHETO_AGENT` → `X-Cheto-Agent`), never
-  by default. `cheto task …` is an agent; `cheto user task …` is the person.
+  by default. `cheto task …` is an agent; `cheto user …` is the person.
+  `cheto area|column …` is shared: `--agent`/`CHETO_AGENT` → that agent,
+  else the login, else the paired agent (`boardSurface` in `src/work.js`).
 - Only a 401 clears a stored credential (`src/clients.js`). 400/403/404/409 never do.
+  A 403 missing scope gets a "cheto login again or edit the token" hint (`src/api.js`).
 - Passive by default. A task landing on a board does not start a runtime.
 - No daemon. Stopping the process is the off switch.
 - Run `npm test` (`node --test`) before calling a change done. The application

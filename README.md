@@ -48,11 +48,21 @@ laptop into an unbounded number of participants.
 | `cheto agent join <agent-id>` | Add it to another workspace. `--workspace <slug>` |
 | `cheto agent pair <membership>` | A single-use code for a machine to redeem |
 | `cheto agent token <membership> --name "…"` | A raw agent credential, **shown once**, for a machine with nowhere to type `cheto connect`. Prefer `pair` |
+| `cheto agent update <agent-id>` | `--name` `--description`; per workspace (`--workspace <slug>`): `--handle` `--charter` `--area` `--capabilities a,b\|none\|default` |
 | `cheto agent disconnect <id>` | Disarm one machine. Siblings keep working |
-| `cheto area list\|create\|update` | Boards and their columns. `--workspace <slug>` |
+| `cheto area list\|create\|update` | Boards and their columns (see [Boards](#boards-you-or-an-agent)) |
 | `cheto column add\|update\|reorder\|remove` | Columns of a board. `remove` needs `--into <column>` |
-| `cheto user task list\|create\|update\|delete` | Tasks **as you**, not as an agent. `--workspace <slug>` |
+| `cheto user task list\|show\|create\|update\|assign\|comment\|delete` | Tasks **as you**, not as an agent |
+| `cheto user review list\|request\|answer` | Reviews you owe, asking somebody to look, answering |
+| `cheto user inbox` | Open work you hold, reviews you owe, unread notifications |
+| `cheto user channel list\|read\|post` | The rooms, as you |
+| `cheto user memory list\|write\|update\|forget` | What the workspace knows, as you |
+| `cheto user search "<text>"` | Search, as you. `--kind` `--limit` `--json` |
 | `cheto logout --user` | Forget your credential on this machine |
+
+Every `cheto user …` command takes `--workspace <slug|uuid>` or
+`CHETO_WORKSPACE`; `user inbox` and `user review list` treat it as an optional
+filter over every workspace your login reaches.
 
 `cheto login` is the OAuth 2.1 device flow: the CLI prints a code, you approve it
 in a browser you are already signed in to, and the CLI collects a scoped
@@ -69,22 +79,56 @@ expires and warns in the last week; after that the next command gets a 401 and
 the CLI tells you to run `cheto login` again. Revoking it in the panel
 (devices/tokens) stops it on the next request the same way.
 
-#### Acting as yourself: `cheto user task …`
+#### Acting as yourself: `cheto user …`
 
-Boards and columns are only ever yours to change — Cheto refuses every agent
-there — so `cheto area …` and `cheto column …` need no prefix. Tasks are the one
-noun both of you act on, so the split is spelled out:
+Tasks, reviews, channels, memory and search are nouns both of you act on, so
+the split is spelled out:
 
 ```bash
-cheto task create "Fix the invoice" --agent rocky       # filed by the agent @rocky
-cheto user task create "Fix the invoice" --workspace demo  # filed by you
+cheto task create "Fix the invoice" --agent rocky           # filed by the agent @rocky
+cheto user task create "Fix the invoice" --workspace demo   # filed by you
 ```
 
-`cheto task …` is always an agent speaking; `cheto user task …` is always you.
-Triage — sorting a backlog somebody else wrote, deleting a card — lives under
-`user task`, because an agent may only touch work it created or holds.
-`--workspace` (or `CHETO_WORKSPACE`) names the workspace; `cheto whoami` lists
-the ones your login reaches.
+`cheto <verb> …` is always an agent speaking; `cheto user <verb> …` is always
+you. `cheto whoami` lists the workspaces your login reaches.
+
+Naming somebody as the person — `user task assign`, `user task update
+--assignee`, `user review request` — takes `me`, `none` (assignee only),
+`user:<id>` / `agent:<id>`, or `@handle` of one of **your own** agents in that
+workspace. The person's surface has no participant directory, so a colleague is
+named by id; the server still checks they belong to the workspace.
+
+`--due YYYY-MM-DD` dates a task and `--due none` clears it, on both surfaces.
+
+#### Boards: you, or an agent
+
+`cheto area …` and `cheto column …` work for both principals, and which one
+speaks follows one rule:
+
+1. `--agent` or `CHETO_AGENT` given → **that agent**, on `/api/v1/agent/areas`
+   (paired here, or your login plus `X-Cheto-Agent`). Needs its
+   `boards.manage` capability. No `--workspace` in the body: an agent is in one.
+2. Otherwise, signed in with `cheto login` → **you**, on `/api/v1/cli/areas`,
+   with `--workspace`.
+3. Otherwise, an agent paired here → **that agent**.
+
+A person signed in is never silently turned into one of their agents: the
+audit trail would name the wrong actor.
+
+#### What an agent may do: capabilities
+
+Each membership carries a list, set by the agent's owner, default all of them:
+`tasks.create`, `tasks.edit_any` (without it, only tasks it created or holds),
+`tasks.delete`, `boards.manage`, `channels.post`, `memory.write`. `cheto status`
+prints the agent's; `cheto agent list` prints each membership's.
+
+```bash
+cheto agent update 4 --workspace demo --capabilities tasks.create,channels.post
+cheto agent update 4 --workspace demo --capabilities none      # read and comment on its own work
+cheto agent update 4 --workspace demo --capabilities default   # back to all
+```
+
+Moving a task to done is never on the list: an agent's work ends in review.
 
 ### As an agent
 
@@ -126,7 +170,8 @@ and only then `--agent` through your login.
 | `cheto task accept <id>` | Verify it, then say yes to it |
 | `cheto task claim <id>` | Take work nobody holds, and start it |
 | `cheto task assign <id> <@who\|none>` | Offer it to somebody — they still accept — or to nobody |
-| `cheto task update <id>` | `--title` `--description` `--type` `--priority` `--due` `--tag`… `--requires-human` |
+| `cheto task update <id>` | `--title` `--description` `--type` `--priority` `--due YYYY-MM-DD\|none` `--assignee @who\|none` `--tag`… `--requires-human` |
+| `cheto task delete <id>` | Off the board (soft delete). Needs `tasks.delete` |
 | `cheto task comment <id> <text>` | Say something where the work is |
 | `cheto task move <id> "<column>"` | Say where the work got to — a column name, or one of the five states |
 | `cheto task create "<title>"` | Write something down  `[--area]` `[--column]` `[--type]` `[--tag]` |
@@ -135,9 +180,11 @@ and only then `--agent` through your login.
 | `cheto review request <task> <@reviewer>` | Ask somebody to look. `--note` |
 | `cheto review answer <review> approved\|changes_requested` | `--note` |
 | `cheto channel list\|read <ch>\|post <ch> <text>` | The rooms, a bounded read, saying something |
+| `cheto memory [get <name>\|write\|update <id>\|forget <id>]` | What the workspace knows. `update` takes `--title` `--body` `--key k\|none` |
+| `cheto search "<text>"` | Past the last few messages. `--kind` `--json` |
 | `cheto heartbeat` | Say this agent is here. `--status online\|busy\|offline` |
 | `cheto capacity` | Workload by board |
-| `cheto status` | Who am I, where am I, what mode am I in, is there work |
+| `cheto status` | Who am I, where am I, what may I do, what mode am I in, is there work |
 | `cheto check` | One pass: heartbeat, read the inbox, hand over what the mode allows |
 | `cheto run` | The same, in a loop, waiting on the server between passes |
 | `cheto logout` | Forget a paired agent's credential on this machine |
@@ -183,10 +230,16 @@ removes the credential it just used — your login for anything done through it,
 that one agent's secret for a paired agent — and says what to run: `cheto login`,
 or re-pair with a code and `cheto connect`.
 
-Nothing else clears anything. A 400 (`agent_required`, `agent_mismatch`), 403
-(`missing_scope` — a login from before `agents:act` existed; run `cheto login`
-again), 404 (`no_such_agent`) or 409 (`ambiguous_agent` — add `--workspace`) is
-about the request, and the credential is fine.
+Nothing else clears anything. A 400 (`agent_required`, `agent_mismatch`), 403,
+404 (`no_such_agent` — not your agent, or this token does not cover it) or 409
+(`ambiguous_agent` — add `--workspace`) is about the request, and the credential
+is fine.
+
+A 403 **missing scope** is a login minted before that permission existed:
+channels, memory and search as yourself need `talk:read`/`talk:write`, and
+acting as an agent needs `agents:act`. The CLI says so — run `cheto login` again
+(new permissions) or edit the token in the panel. Any other 403 is a rule: a
+capability switched off, done refused to an agent, work that is not yours.
 
 ## CLI or MCP
 

@@ -124,59 +124,69 @@ export async function taskShow(args = []) {
     return withAgent(args, async (api) => {
         const { data: task } = await api.task(taskRef(id));
 
-        if (args.includes('--json')) {
-            log(JSON.stringify(task));
-
-            return 0;
-        }
-
-        log('');
-        log(`  ${task.key}  ${task.title}`);
-        log(`  Status:      ${task.status?.value}${task.board_status ? `  (${task.board_status.name})` : ''}`);
-        log(`  Type:        ${task.type?.value ?? task.type ?? 'task'}   Priority: ${task.priority?.value ?? task.priority ?? 'normal'}`);
-        log(`  Assignee:    ${task.assignee ? `${task.assignee.name} (${task.assignee.type})` : 'nobody'}${task.accepted_at ? '' : task.assignee ? '  · not accepted yet' : ''}`);
-
-        if (task.due_on) {
-            log(`  Due:         ${task.due_on}`);
-        }
-
-        if ((task.tags ?? []).length > 0) {
-            log(`  Tags:        ${task.tags.map((tag) => tag.name).join(', ')}`);
-        }
-
-        if (task.requires_human) {
-            log('  Requires a person before a machine acts on it.');
-        }
-
-        if ((task.allowed_transitions ?? []).length > 0) {
-            log(`  Can move to: ${task.allowed_transitions.join(', ')}`);
-        }
-
-        if (task.description) {
-            log('');
-            log(task.description);
-        }
-
-        (task.reviews ?? []).forEach((review) => {
-            log('');
-            log(`  review ${review.id}  ${review.status?.value ?? review.status}  ·  ${review.reviewer?.name ?? '?'}${review.note ? `: ${review.note}` : ''}`);
-        });
-
-        if ((task.comments ?? []).length > 0) {
-            log('');
-            log(`  ${task.comments.length} comment${task.comments.length === 1 ? '' : 's'}`);
-
-            task.comments.forEach((comment) => {
-                log('');
-                log(`  ${comment.author?.name ?? 'somebody'}${comment.created_at ? `  ·  ${String(comment.created_at).slice(0, 16).replace('T', ' ')}` : ''}`);
-                log(`    ${String(comment.body ?? '').replace(/\n/g, '\n    ')}`);
-            });
-        }
-
-        log('');
+        printTask(task, args);
 
         return 0;
     });
+}
+
+/**
+ * One task in full, as a person reads it. Shared by `cheto task show` and
+ * `cheto user task show`: the same resource comes back on both surfaces.
+ */
+export function printTask(task, args = []) {
+    if (args.includes('--json')) {
+        log(JSON.stringify(task));
+
+        return;
+    }
+
+    log('');
+    log(`  ${task.key}  ${task.title}`);
+    log(`  Status:      ${task.status?.value}${task.board_status ? `  (${task.board_status.name})` : ''}`);
+    log(`  Type:        ${task.type?.value ?? task.type ?? 'task'}   Priority: ${task.priority?.value ?? task.priority ?? 'normal'}`);
+    log(`  Assignee:    ${task.assignee ? `${task.assignee.name} (${task.assignee.type})` : 'nobody'}${task.accepted_at ? '' : task.assignee ? '  · not accepted yet' : ''}`);
+
+    if (task.due_on) {
+        log(`  Due:         ${task.due_on}`);
+    }
+
+    if ((task.tags ?? []).length > 0) {
+        log(`  Tags:        ${task.tags.map((tag) => tag.name).join(', ')}`);
+    }
+
+    if (task.requires_human) {
+        log('  Requires a person before a machine acts on it.');
+    }
+
+    if ((task.allowed_transitions ?? []).length > 0) {
+        log(`  Can move to: ${task.allowed_transitions.join(', ')}`);
+    }
+
+    if (task.description) {
+        log('');
+        log(task.description);
+    }
+
+    (task.reviews ?? []).forEach((review) => {
+        const note = review.note ?? review.response_note ?? review.request_note;
+
+        log('');
+        log(`  review ${review.id}  ${review.status?.value ?? review.status}  ·  ${review.reviewer?.name ?? '?'}${note ? `: ${note}` : ''}`);
+    });
+
+    if ((task.comments ?? []).length > 0) {
+        log('');
+        log(`  ${task.comments.length} comment${task.comments.length === 1 ? '' : 's'}`);
+
+        task.comments.forEach((comment) => {
+            log('');
+            log(`  ${comment.author?.name ?? 'somebody'}${comment.created_at ? `  ·  ${String(comment.created_at).slice(0, 16).replace('T', ' ')}` : ''}`);
+            log(`    ${String(comment.body ?? '').replace(/\n/g, '\n    ')}`);
+        });
+    }
+
+    log('');
 }
 
 /** `cheto task claim <id>` — take work nobody holds, and start it. */
@@ -216,7 +226,7 @@ export async function taskAssign(args = []) {
 
     return withAgent(args, async (api) => {
         const task = taskRef(id);
-        const nobody = ['none', 'nobody', 'null'].includes(who.toLowerCase());
+        const nobody = isNobody(who);
         const fields = nobody ? { assignee_type: null, assignee_id: null } : await participantFields(api, who, 'assignee');
         const { data } = await api.updateTask(task, fields, `cheto-assign-${task}-${slug(nobody ? 'nobody' : who)}`);
 
@@ -260,10 +270,13 @@ export async function taskUpdate(args = []) {
         body.requires_human = false;
     }
 
-    if (!id || Object.keys(body).length === 0) {
+    const assignee = flag(args, '--assignee');
+
+    if (!id || (Object.keys(body).length === 0 && assignee === null)) {
         warn('Usage: cheto task update <task-id> [--title "…"] [--description "…"] [--type bug]');
         warn(`                                    [--priority ${PRIORITIES.join('|')}] [--due 2026-09-30|none]`);
         warn('                                    [--tag a --tag b]  (replaces every tag)');
+        warn('                                    [--assignee @handle|none]');
         warn('                                    [--requires-human | --no-requires-human]');
 
         return 1;
@@ -283,6 +296,11 @@ export async function taskUpdate(args = []) {
 
     return withAgent(args, async (api) => {
         const task = taskRef(id);
+
+        if (assignee !== null) {
+            Object.assign(body, isNobody(assignee) ? { assignee_type: null, assignee_id: null } : await participantFields(api, assignee, 'assignee'));
+        }
+
         const { data } = await api.updateTask(task, body, `cheto-update-${task}-${slug(JSON.stringify(body))}`);
 
         // The one field this Cheto may validate and then not write, when it
@@ -300,6 +318,67 @@ export async function taskUpdate(args = []) {
     });
 }
 
+/**
+ * `cheto task delete <id>` — take it off the board (a soft delete).
+ *
+ * Needs the `tasks.delete` capability on this agent's membership, which the
+ * owner can switch off; without it the server answers 403 and says so.
+ */
+export async function taskDelete(args = []) {
+    const [id] = positionals(args);
+
+    if (!id) {
+        warn('Usage: cheto task delete <task-id>');
+
+        return 1;
+    }
+
+    return withAgent(args, async (api) => {
+        const task = taskRef(id);
+        const { data } = await api.deleteTask(task);
+
+        log(`Deleted ${data?.key ?? `task ${task}`}. The activity trail still names it; this API does not bring it back.`);
+
+        return 0;
+    });
+}
+
+/** `cheto memory update <id> [--title] [--body] [--key name|none]` — needs `memory.write`. */
+export async function memoryUpdate(args = []) {
+    const [id] = positionals(args);
+    const body = memoryChanges(args);
+
+    if (!id || Object.keys(body).length === 0) {
+        warn('Usage: cheto memory update <memory-id> [--title "…"] [--body "…"] [--key staging-access|none]');
+
+        return 1;
+    }
+
+    return withAgent(args, async (api) => {
+        const { data } = await api.updateMemory(id, body);
+
+        log(`Updated memory ${data?.id ?? id}${data?.title ? `: ${data.title}` : ''}.`);
+
+        return 0;
+    });
+}
+
+/** What `memory update` changes, from flags. `--key none` clears the key. Shared with the person's version. */
+export function memoryChanges(args) {
+    const body = {
+        ...optional('title', flag(args, '--title')),
+        ...optional('body', flag(args, '--body')),
+    };
+
+    const key = flag(args, '--key');
+
+    if (key !== null) {
+        body.key = isNobody(key) ? null : key;
+    }
+
+    return body;
+}
+
 /** `cheto review list` — reviews this agent owes somebody an answer on. */
 export async function reviewList(args = []) {
     return withAgent(args, async (api) => {
@@ -311,25 +390,30 @@ export async function reviewList(args = []) {
             return 0;
         }
 
-        const rows = Array.isArray(answer?.data) ? answer.data : [];
-
-        if (rows.length === 0) {
-            log('No reviews waiting on you.');
-
-            return 0;
-        }
-
-        log('');
-        rows.forEach((review) => {
-            log(`  review ${review.id}  ·  ${review.task?.key ?? `task ${review.task_id}`}  ${review.task?.title ?? ''}`.trimEnd());
-            log(`    asked by ${review.requested_by?.name ?? review.requester?.name ?? '?'}${review.note ? `: ${review.note}` : ''}`);
-        });
-        log('');
-        log('  Answer one: cheto review answer <review-id> approved|changes_requested [--note "…"]');
-        log('');
+        printReviews(Array.isArray(answer?.data) ? answer.data : [], 'cheto review answer');
 
         return 0;
     });
+}
+
+/** Reviews waiting on somebody, with the command that answers one. */
+export function printReviews(rows, answerWith) {
+    if (rows.length === 0) {
+        log('No reviews waiting on you.');
+
+        return;
+    }
+
+    log('');
+    rows.forEach((review) => {
+        const note = review.note ?? review.request_note;
+
+        log(`  review ${review.id}  ·  ${review.task?.key ?? `task ${review.task_id}`}  ${review.task?.title ?? ''}`.trimEnd());
+        log(`    asked by ${review.requested_by?.name ?? review.requester?.name ?? '?'}${note ? `: ${note}` : ''}`);
+    });
+    log('');
+    log(`  Answer one: ${answerWith} <review-id> approved|changes_requested [--note "…"]`);
+    log('');
 }
 
 /**
@@ -409,27 +493,32 @@ export async function channelRead(args = []) {
     return withAgent(args, async (api) => {
         const answer = await api.context(encodeURIComponent(channel.replace(/^#/, '')));
 
-        if (args.includes('--json')) {
-            log(JSON.stringify(answer));
-
-            return 0;
-        }
-
-        log('');
-
-        (answer.compacts ?? []).forEach((compact) => {
-            log(`  [summary] ${String(compact.body ?? '').replace(/\s+/g, ' ')}`);
-            log('');
-        });
-
-        (answer.messages ?? answer.data ?? []).forEach((message) => {
-            log(`  ${message.author?.name ?? 'somebody'}: ${message.body}`);
-        });
-
-        log('');
+        printContext(answer, args);
 
         return 0;
     });
+}
+
+/** The bounded read of a channel: its summaries, then the messages after them. Same shape on both surfaces. */
+export function printContext(answer, args = []) {
+    if (args.includes('--json')) {
+        log(JSON.stringify(answer));
+
+        return;
+    }
+
+    log('');
+
+    (answer.compacts ?? []).forEach((compact) => {
+        log(`  [summary] ${String(compact.body ?? '').replace(/\s+/g, ' ')}`);
+        log('');
+    });
+
+    (answer.messages ?? answer.data ?? []).forEach((message) => {
+        log(`  ${message.author?.name ?? 'somebody'}: ${message.body}`);
+    });
+
+    log('');
 }
 
 /** `cheto channel post <channel> <text>` — say something in a room. @handles resolve server-side. */
@@ -572,6 +661,10 @@ async function boardFor(api, area) {
     }
 
     return board;
+}
+
+export function isNobody(value) {
+    return ['none', 'nobody', 'null'].includes(String(value).trim().toLowerCase());
 }
 
 function setIf(query, key, value) {

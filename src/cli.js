@@ -1194,6 +1194,10 @@ export async function status(args = []) {
         log(`  Workspace: ${me.workspace.name}`);
         log(`  Agent:     ${me.agent.name}  (${me.agent.status.value})`);
 
+        if (Array.isArray(me.membership?.capabilities)) {
+            log(`  Can:       ${me.membership.capabilities.join(', ') || 'none — only work it created or holds'}  (never: move to done)`);
+        }
+
         // Which credential is speaking. The person's login acting as one of
         // their agents behaves exactly like the agent's own, and the audit
         // trail names both — but a person reading this should see which.
@@ -1715,7 +1719,7 @@ export async function requireSession(args = []) {
 }
 
 /** `--agent`, then `CHETO_AGENT`. A flag typed now outranks the environment. */
-function agentFlag(args) {
+export function agentFlag(args) {
     const value = flag(args, '--agent') ?? process.env.CHETO_AGENT ?? null;
 
     return value && String(value).trim() !== '' ? String(value).trim() : null;

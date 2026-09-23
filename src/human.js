@@ -246,6 +246,10 @@ export async function agentList(args = []) {
 
                 log(`    handle ${membership.handle ?? String(membership.mention ?? '').replace(/^@/, '')} in ${workspace}  ·  ${membership.presence ?? 'unknown'}  ·  membership ${membership.id}`);
 
+                if (Array.isArray(membership.capabilities)) {
+                    log(`      can: ${membership.capabilities.join(', ') || 'none — only work it created or holds'}`);
+                }
+
                 live.forEach((connection) => {
                     log(`      ${connection.status?.value === 'offline' ? 'offline' : 'online '} ${connection.label} — ${connection.runtime_name ?? 'unknown runtime'} · connection ${connection.id}`);
                 });
@@ -329,6 +333,7 @@ export async function agentUpdate(args = []) {
         warn('Usage: cheto agent update <agent-id> [--name "Rocky"] [--description "…"]');
         warn('                                    [--workspace otro-espacio --handle rocky --charter "…"]');
         warn('                                    [--area <uuid|id>]  the board its work lands on there');
+        warn(`                                    [--capabilities ${CAPABILITIES.join(',')}|default]`);
         warn('Ids come from: cheto agent list');
 
         return 1;
@@ -347,8 +352,23 @@ export async function agentUpdate(args = []) {
         area: areaFlag(args),
     };
 
+    try {
+        changes.capabilities = capabilitiesFlag(args);
+    } catch (error) {
+        warn(error.message);
+
+        return 1;
+    }
+
     if (Object.values(changes).every((value) => value === undefined)) {
-        warn('Nothing to change. Pass at least one of --name, --description, --handle, --charter, --area.');
+        warn('Nothing to change. Pass at least one of --name, --description, --handle, --charter, --area, --capabilities.');
+
+        return 1;
+    }
+
+    // Capabilities belong to one membership, like the handle: say which.
+    if (changes.capabilities !== undefined && !changes.workspace) {
+        warn('--capabilities needs --workspace: what an agent may do is decided per workspace.');
 
         return 1;
     }
@@ -374,6 +394,10 @@ export async function agentUpdate(args = []) {
 
             if (membership.charter) {
                 log(`  Charter: ${membership.charter}`);
+            }
+
+            if (Array.isArray(membership.capabilities)) {
+                log(`  Can: ${membership.capabilities.join(', ') || 'none — only work it created or holds'}`);
             }
         }
 
@@ -646,6 +670,45 @@ function areaFlag(args) {
     }
 
     return ['none', 'null', ''].includes(String(value).trim().toLowerCase()) ? null : String(value).trim();
+}
+
+/** What an agent may do in one workspace, besides reading and talking. Closing work is never one of them. */
+export const CAPABILITIES = ['tasks.create', 'tasks.edit_any', 'tasks.delete', 'boards.manage', 'channels.post', 'memory.write'];
+
+/**
+ * `--capabilities a,b,c`, `--capabilities none` (an empty list), or
+ * `--capabilities default` (null: back to the defaults, which is all of them).
+ * Undefined when the flag is absent, so it changes nothing.
+ */
+export function capabilitiesFlag(args) {
+    const index = args.indexOf('--capabilities');
+
+    if (index === -1) {
+        return undefined;
+    }
+
+    const value = String(args[index + 1] ?? '').trim().toLowerCase();
+
+    if (value === '' || value.startsWith('--')) {
+        throw new ChetoError(`--capabilities takes a comma list (${CAPABILITIES.join(',')}), none, or default.`);
+    }
+
+    if (value === 'default') {
+        return null;
+    }
+
+    if (value === 'none') {
+        return [];
+    }
+
+    const list = [...new Set(value.split(',').map((one) => one.trim()).filter(Boolean))];
+    const unknown = list.filter((one) => !CAPABILITIES.includes(one));
+
+    if (unknown.length > 0) {
+        throw new ChetoError(`Unknown capabilit${unknown.length === 1 ? 'y' : 'ies'}: ${unknown.join(', ')}. One of ${CAPABILITIES.join(', ')}.`);
+    }
+
+    return list;
 }
 
 /** When the login stops working, in words. */

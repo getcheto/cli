@@ -31,6 +31,25 @@ export class ChetoError extends Error {
     }
 }
 
+/**
+ * What the server says when a login lacks a scope, in the locales it ships.
+ *
+ * The scope middleware answers with a message and no code, and the message is
+ * in the person's language; the delegation path sends `error: missing_scope`.
+ * Either one is the same situation: a login minted before the scope existed.
+ */
+const MISSING_SCOPE_MESSAGES = ['This credential was not granted that.', 'Esta credencial no tiene ese permiso.'];
+
+export const SCOPE_HINT = 'Run cheto login again (new permissions) or edit this token in the panel.';
+
+export function isMissingScope(status, body) {
+    return status === 403 && (body?.error === 'missing_scope' || MISSING_SCOPE_MESSAGES.includes(String(body?.message ?? '')));
+}
+
+function withScopeHint(status, body, message) {
+    return isMissingScope(status, body) ? `${message} ${SCOPE_HINT}` : message;
+}
+
 export class ChetoApi {
     /**
      * `headers` is how one client speaks as a chosen agent: a person's token
@@ -113,7 +132,7 @@ export class ChetoApi {
         }
 
         if (!response.ok) {
-            throw new ChetoError(parsed?.message ?? `Cheto returned ${response.status}`, {
+            throw new ChetoError(withScopeHint(response.status, parsed, parsed?.message ?? `Cheto returned ${response.status}`), {
                 status: response.status,
                 body: parsed,
             });
@@ -148,6 +167,11 @@ export class ChetoApi {
 
     updateTask(taskId, body, idempotencyKey) {
         return this.request(`/tasks/${taskId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    /** Soft delete. Needs the `tasks.delete` capability on this membership. */
+    deleteTask(taskId) {
+        return this.request(`/tasks/${taskId}`, { method: 'DELETE' });
     }
 
     reviews() {
@@ -262,8 +286,41 @@ export class ChetoApi {
         return this.request('/memory', { method: 'POST', body, idempotencyKey });
     }
 
+    updateMemory(id, body) {
+        return this.request(`/memory/${id}`, { method: 'PATCH', body });
+    }
+
     forgetMemory(id) {
         return this.request(`/memory/${id}`, { method: 'DELETE' });
+    }
+
+    // ── Boards, as this agent (needs `boards.manage`) ──
+    //
+    // The same verbs and bodies as the person's client, minus `workspace`: an
+    // agent is always in exactly one. `area` is an id, uuid or slug.
+
+    createArea(body, idempotencyKey) {
+        return this.request('/areas', { method: 'POST', body, idempotencyKey });
+    }
+
+    updateArea(area, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}`, { method: 'PATCH', body });
+    }
+
+    addColumn(area, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns`, { method: 'POST', body });
+    }
+
+    updateColumn(area, column, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns/${column}`, { method: 'PATCH', body });
+    }
+
+    reorderColumns(area, order) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns`, { method: 'PUT', body: { order } });
+    }
+
+    removeColumn(area, column, into) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns/${column}`, { method: 'DELETE', body: { into } });
     }
 
     // ── Channels and folding their history ─────────────
@@ -409,6 +466,69 @@ export class ChetoUserApi {
         return this.request(`/connections/${connectionId}`, { method: 'DELETE' });
     }
 
+    // ── The rest of the work, as the person ────────────
+    //
+    // Reading a task whole, comments and reviews need `tasks:*`; channels,
+    // memory and search need `talk:*`, which a login from before they existed
+    // does not have (see SCOPE_HINT).
+
+    task(taskId) {
+        return this.request(`/tasks/${taskId}`);
+    }
+
+    comment(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/comments`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    reviews(params) {
+        return this.request(`/reviews${query(params)}`);
+    }
+
+    requestReview(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/reviews`, { method: 'POST', body, idempotencyKey });
+    }
+
+    answerReview(reviewId, body, idempotencyKey) {
+        return this.request(`/reviews/${reviewId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    inbox(params) {
+        return this.request(`/inbox${query(params)}`);
+    }
+
+    channels(params) {
+        return this.request(`/channels${query(params)}`);
+    }
+
+    /** A channel by id: a slug is only unique inside one workspace, and a login reaches several. */
+    context(channelId) {
+        return this.request(`/channels/${channelId}/context`);
+    }
+
+    post(channelId, body, idempotencyKey) {
+        return this.request(`/channels/${channelId}/messages`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    memories(params) {
+        return this.request(`/memory${query(params)}`);
+    }
+
+    writeMemory(body, idempotencyKey) {
+        return this.request('/memory', { method: 'POST', body, idempotencyKey });
+    }
+
+    updateMemory(id, body) {
+        return this.request(`/memory/${id}`, { method: 'PATCH', body });
+    }
+
+    forgetMemory(id) {
+        return this.request(`/memory/${id}`, { method: 'DELETE' });
+    }
+
+    search(params) {
+        return this.request(`/search${query(params)}`);
+    }
+
     /** Begin `cheto login`. Unauthenticated: this is how a token is obtained. */
     static startLogin(url, machine, fetchImpl = globalThis.fetch) {
         const api = new ChetoUserApi({ url, token: null, fetchImpl });
@@ -435,4 +555,10 @@ export class ChetoUserApi {
             throw error;
         }
     }
+}
+
+function query(params) {
+    const text = params?.toString() ?? '';
+
+    return text ? `?${text}` : '';
 }

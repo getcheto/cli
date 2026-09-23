@@ -71,7 +71,9 @@ import {
     reviewList,
     reviewRequest,
     taskAssign,
+    memoryUpdate,
     taskClaim,
+    taskDelete,
     taskList,
     taskShow,
     taskUpdate,
@@ -90,6 +92,23 @@ import {
     userTaskList,
     userTaskUpdate,
 } from '../src/work.js';
+import {
+    userChannelList,
+    userChannelPost,
+    userChannelRead,
+    userInbox,
+    userMemoryForget,
+    userMemoryList,
+    userMemoryUpdate,
+    userMemoryWrite,
+    userReviewAnswer,
+    userReviewList,
+    userReviewRequest,
+    userSearch,
+    userTaskAssign,
+    userTaskComment,
+    userTaskShow,
+} from '../src/collab.js';
 
 const argv = process.argv.slice(2);
 const [command, ...rest] = argv;
@@ -133,7 +152,12 @@ const GROUPS = {
         post: channelPost,
     },
     user: {
-        task: userTask,
+        task: (args) => userVerb('task', args),
+        review: (args) => userVerb('review', args),
+        channel: (args) => userVerb('channel', args),
+        memory: (args) => userVerb('memory', args),
+        inbox: userInbox,
+        search: userSearch,
     },
     inbox: {
         check: inboxCheck,
@@ -141,6 +165,7 @@ const GROUPS = {
     memory: {
         get: memoryGet,
         write: memoryWrite,
+        update: memoryUpdate,
         forget: memoryForget,
     },
     task: {
@@ -150,6 +175,7 @@ const GROUPS = {
         assign: taskAssign,
         update: taskUpdate,
         create: taskCreate,
+        delete: taskDelete,
         verify: taskVerify,
         accept: taskAccept,
         comment: taskComment,
@@ -177,24 +203,39 @@ const COMMANDS = {
 };
 
 /**
- * `cheto user task <verb>` — the person's own task verbs.
+ * `cheto user <noun> <verb>` — the person's own verbs.
  *
  * Three words because the split is the point: `cheto task …` is always an agent
- * speaking, `cheto user task …` is always you.
+ * speaking, `cheto user task …` is always you. A bare noun that reads as a list
+ * (`cheto user memory`, `cheto user review`) lists.
  */
-const USER_TASK = { list: userTaskList, create: userTaskCreate, update: userTaskUpdate, delete: userTaskDelete };
+const USER = {
+    task: {
+        list: userTaskList,
+        show: userTaskShow,
+        create: userTaskCreate,
+        update: userTaskUpdate,
+        assign: userTaskAssign,
+        comment: userTaskComment,
+        delete: userTaskDelete,
+    },
+    review: { list: userReviewList, request: userReviewRequest, answer: userReviewAnswer },
+    channel: { list: userChannelList, read: userChannelRead, post: userChannelPost },
+    memory: { list: userMemoryList, write: userMemoryWrite, update: userMemoryUpdate, forget: userMemoryForget },
+};
 
-async function userTask(args) {
+async function userVerb(noun, args) {
+    const verbs = USER[noun];
     const [verb, ...rest] = args;
-    const handler = USER_TASK[verb];
+    const handler = verbs[verb] ?? ((verb === undefined || verb.startsWith('--')) && noun !== 'task' ? verbs.list : null);
 
     if (!handler) {
-        console.error(`Try one of: ${Object.keys(USER_TASK).map((name) => `cheto user task ${name}`).join(', ')}`);
+        console.error(`Try one of: ${Object.keys(verbs).map((name) => `cheto user ${noun} ${name}`).join(', ')}`);
 
         return 1;
     }
 
-    return handler(rest);
+    return handler(verbs[verb] ? rest : args);
 }
 
 function usage() {
@@ -219,25 +260,39 @@ function usage() {
     cheto agent create <name>      Create an agent  --workspace <slug> [--handle] [--charter]
     cheto agent update <agent-id>  Change its details  [--name] [--description]
                                   [--workspace <slug> --handle --charter --area]
+                                  [--workspace <slug> --capabilities a,b|none|default]
     cheto agent avatar <id> <file> Give it a face  (PNG, JPEG or WebP, up to 2 MB)
     cheto agent join <agent-id>    Add it to another workspace  --workspace <slug>
     cheto agent pair <membership>  A code for a machine to redeem
     cheto agent token <membership> A raw credential, shown once  --name "what holds it"
                                   [--expires-days N]  (prefer pair where there is a terminal)
     cheto agent disconnect <id>    Disarm one machine
-    cheto area list                Boards and columns  --workspace <slug> [--archived]
-    cheto area create "<name>"     A board  --workspace <slug> [--column "Name:category"]...
+    cheto user task list           Tasks, as you  --workspace <slug> [--area] [--open]
+    cheto user task show <id>      One task in full, with comments and reviews
+    cheto user task create "<t>"   Filed by you, not an agent  --workspace <slug>
+                                  [--area] [--column] [--type] [--priority] [--due] [--tag]
+    cheto user task update <id>    Triage, as you  [--column "Name"] [--title] [--tag]...
+                                  [--due YYYY-MM-DD|none] [--assignee <who>]
+    cheto user task assign <id> <who>   who: me | @your-agent | user:<id> | agent:<id> | none
+    cheto user task comment <id> <text>
+    cheto user task delete <id>    Off the board (soft delete)
+    cheto user review list|request|answer   Same arguments as cheto review, as you
+    cheto user inbox               Open work you hold, reviews you owe  [--workspace]
+    cheto user channel list|read|post       --workspace <slug>
+    cheto user memory list|write|update|forget  --workspace <slug>
+    cheto user search "<text>"     --workspace <slug> [--kind task]... [--json]
+    cheto logout --user            Forget your login on this machine
+
+  Boards — you, or an agent. With --agent/CHETO_AGENT: that agent (needs its
+  boards.manage capability). Without: you when signed in, else the paired agent.
+    cheto area list                Boards and columns  [--workspace <slug>] [--archived]
+    cheto area create "<name>"     A board  [--workspace <slug>] [--column "Name:category"]...
     cheto area update <area>       Rename it  [--name] [--description] [--color] [--icon]
     cheto column add <area> "<name>" <category>
     cheto column update <area> <column>  [--name] [--category]
     cheto column reorder <area> <column> <column> ...
     cheto column remove <area> <column> --into <column>
-    cheto user task list           Tasks, as you  --workspace <slug> [--area] [--open]
-    cheto user task create "<t>"   Filed by you, not an agent  --workspace <slug>
-                                  [--area] [--column] [--type] [--priority] [--due] [--tag]
-    cheto user task update <id>    Triage, as you  [--column "Name"] [--title] [--tag]...
-    cheto user task delete <id>    Off the board (soft delete). Only a person may.
-    cheto logout --user            Forget your login on this machine
+                                  category: inbox|ready|in_progress|review|done
 
   As an agent (paired, or --agent with your login)
     cheto connect <code>           Redeem a pairing code
@@ -254,7 +309,9 @@ function usage() {
                                   [--column "Name"] [--type] [--priority] [--due]
                                   [--tag] [--description]
     cheto task update <id>         [--title] [--description] [--type] [--priority]
-                                  [--due|none] [--tag]... [--requires-human]
+                                  [--due YYYY-MM-DD|none] [--assignee @who|none]
+                                  [--tag]... [--requires-human]
+    cheto task delete <id>         Off the board (soft delete; needs tasks.delete)
     cheto task comment <id> <text> Say something on the task
     cheto task move <id> "<col>"   Say where the work got to  (a column name,
                                   or inbox|ready|in_progress|review)
@@ -274,13 +331,14 @@ function usage() {
     cheto memory                   What this workspace knows
     cheto memory get <name>        One of them, by the name it answers to
     cheto memory write <t> <body>  Write one down  [--key staging-access]
-    cheto memory forget <id>       Only what this agent wrote
+    cheto memory update <id>       [--title] [--body] [--key name|none]
+    cheto memory forget <id>       Needs memory.write
     cheto search "what was said"   Look past the last few messages
                                   [--kind message|task|comment|compact] [--json]
     cheto compact                  Summarise what nobody has summarised yet
                                   [--channel <slug>]  Costs tokens: it runs your
                                   runtime. Cheto never writes one itself.
-    cheto status                   Who am I, where am I, is there work
+    cheto status                   Who am I, where am I, what may I do, is there work
     cheto logout                   Forget one paired agent's credential  [--all]
 
   Options
@@ -290,7 +348,8 @@ function usage() {
                                   or the only one paired.
     --workspace <slug|uuid>       With --agent via your login: which workspace,
                                   when the agent works in several (CHETO_WORKSPACE).
-                                  For area/column/user task: which workspace.
+                                  For cheto user … and area/column as you: which
+                                  workspace.
     --url <url>                   Cheto URL (login/connect; remembered afterwards)
     --device <name>               What to call this machine
     --wait <seconds>              Hold the connection waiting for work
@@ -305,6 +364,13 @@ function usage() {
     A 401 means Cheto no longer accepts the credential (revoked, or your login
     passed its 90 days). The CLI then forgets it here and says what to run:
     cheto login for your login, cheto connect for a paired agent.
+    A 403 "not granted" on a login is a missing scope (channels, memory and
+    search need talk:*): run cheto login again, or edit the token in the panel.
+    Nothing is forgotten on a 403.
+
+  What an agent may do is per workspace, set by its owner (default: all):
+    tasks.create tasks.edit_any tasks.delete boards.manage channels.post
+    memory.write. Moving a task to done is never an agent's.
 
   What a pass may do — \`mode\` in cheto.yml, default \`notify\`
     off       Nothing is handed to the runtime. Presence only.
