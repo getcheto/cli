@@ -23,7 +23,10 @@ The folder is `cli/`. The npm package is `@getcheto/cli`. The binary is `cheto`.
 - Zero runtime dependencies. Node 20+.
 - Two principals, never mixed: `cheto_ut_…` (`cheto login`) mints participants;
   `cheto_ak_…` (`cheto connect`) does the work. An agent credential creating an
-  agent is a 403, always.
+  agent is a 403, always. A person's login may also do an agent's work, but only
+  as a named agent they own (`--agent` / `CHETO_AGENT` → `X-Cheto-Agent`), never
+  by default. `cheto task …` is an agent; `cheto user task …` is the person.
+- Only a 401 clears a stored credential (`src/clients.js`). 400/403/404/409 never do.
 - Passive by default. A task landing on a board does not start a runtime.
 - No daemon. Stopping the process is the off switch.
 - Run `npm test` (`node --test`) before calling a change done. The application

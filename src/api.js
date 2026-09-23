@@ -32,14 +32,26 @@ export class ChetoError extends Error {
 }
 
 export class ChetoApi {
-    constructor({ url, token, fetchImpl = globalThis.fetch }) {
+    /**
+     * `headers` is how one client speaks as a chosen agent: a person's token
+     * plus `X-Cheto-Agent`. Per client, never global, so two clients in one
+     * process cannot leak an identity into each other.
+     *
+     * `onUnauthorized` runs on a 401 and nothing else. A 401 is the server
+     * saying this credential is gone — revoked, expired, unknown — and the
+     * caller decides what to forget. 400, 403, 404 and 409 are about the
+     * request, not the credential, and never reach it.
+     */
+    constructor({ url, token, fetchImpl = globalThis.fetch, headers = {}, onUnauthorized = null }) {
         this.base = `${String(url).replace(/\/+$/, '')}/api/v1/agent`;
         this.token = token;
         this.fetch = fetchImpl;
+        this.headers = headers;
+        this.onUnauthorized = onUnauthorized;
     }
 
     async request(path, { method = 'GET', body, form, idempotencyKey, timeoutMs = 30_000 } = {}) {
-        const headers = { Accept: 'application/json' };
+        const headers = { Accept: 'application/json', ...(this.headers ?? {}) };
 
         if (this.token) {
             headers.Authorization = `Bearer ${this.token}`;
@@ -91,6 +103,15 @@ export class ChetoApi {
             );
         }
 
+        if (response.status === 401 && this.token && this.onUnauthorized) {
+            const hint = await this.onUnauthorized(parsed);
+
+            throw new ChetoError(`${parsed?.message ?? 'Cheto returned 401'}${hint ? ` ${hint}` : ''}`, {
+                status: 401,
+                body: parsed,
+            });
+        }
+
         if (!response.ok) {
             throw new ChetoError(parsed?.message ?? `Cheto returned ${response.status}`, {
                 status: response.status,
@@ -116,6 +137,33 @@ export class ChetoApi {
 
     claim(taskId, idempotencyKey) {
         return this.request(`/tasks/${taskId}/claim`, { method: 'POST', idempotencyKey });
+    }
+
+    /** Tasks, filtered. `params` is a URLSearchParams the caller built. */
+    tasks(params) {
+        const query = params?.toString() ?? '';
+
+        return this.request(`/tasks${query ? `?${query}` : ''}`);
+    }
+
+    updateTask(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    reviews() {
+        return this.request('/reviews');
+    }
+
+    requestReview(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}/reviews`, { method: 'POST', body, idempotencyKey });
+    }
+
+    answerReview(reviewId, body, idempotencyKey) {
+        return this.request(`/reviews/${reviewId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    capacity() {
+        return this.request('/capacity');
     }
 
     heartbeat(status) {
@@ -262,10 +310,12 @@ export class ChetoApi {
  * mints principals.
  */
 export class ChetoUserApi {
-    constructor({ url, token, fetchImpl = globalThis.fetch }) {
+    constructor({ url, token, fetchImpl = globalThis.fetch, onUnauthorized = null }) {
         this.base = `${String(url).replace(/\/+$/, '')}/api/v1/cli`;
         this.token = token;
         this.fetch = fetchImpl;
+        this.headers = {};
+        this.onUnauthorized = onUnauthorized;
     }
 
     request(path, options = {}) {
@@ -302,6 +352,57 @@ export class ChetoUserApi {
 
     pair(membershipId) {
         return this.request(`/memberships/${membershipId}/pair`, { method: 'POST', body: {} });
+    }
+
+    /** A raw agent credential, shown once. For a machine with nowhere to pair. */
+    issueCredential(membershipId, body) {
+        return this.request(`/memberships/${membershipId}/credentials`, { method: 'POST', body });
+    }
+
+    // ── Boards and the work on them, as the person ─────
+
+    areas(params) {
+        return this.request(`/areas?${params.toString()}`);
+    }
+
+    createArea(body, idempotencyKey) {
+        return this.request('/areas', { method: 'POST', body, idempotencyKey });
+    }
+
+    updateArea(area, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}`, { method: 'PATCH', body });
+    }
+
+    addColumn(area, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns`, { method: 'POST', body });
+    }
+
+    updateColumn(area, column, body) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns/${column}`, { method: 'PATCH', body });
+    }
+
+    reorderColumns(area, order) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns`, { method: 'PUT', body: { order } });
+    }
+
+    removeColumn(area, column, into) {
+        return this.request(`/areas/${encodeURIComponent(area)}/columns/${column}`, { method: 'DELETE', body: { into } });
+    }
+
+    tasks(params) {
+        return this.request(`/tasks?${params.toString()}`);
+    }
+
+    createTask(body, idempotencyKey) {
+        return this.request('/tasks', { method: 'POST', body, idempotencyKey });
+    }
+
+    updateTask(taskId, body, idempotencyKey) {
+        return this.request(`/tasks/${taskId}`, { method: 'PATCH', body, idempotencyKey });
+    }
+
+    deleteTask(taskId) {
+        return this.request(`/tasks/${taskId}`, { method: 'DELETE' });
     }
 
     disconnect(connectionId) {

@@ -12,8 +12,10 @@
  *   **You.**    `login`, `whoami`, `agent …` — a human credential, obtained by
  *               approving this terminal in a browser. Only these can create an
  *               agent, because minting a participant is a human action.
- *   **The agent.** `connect`, `inbox check`, `task verify`, `check`, `run` — a
- *               machine credential scoped to one workspace.
+ *   **The agent.** `connect`, `inbox check`, `task …`, `review …`, `check`,
+ *               `run` — as one specific agent: its own credential paired here,
+ *               or your login naming one of your agents with `--agent`
+ *               (`X-Cheto-Agent` on the wire). Never "some agent" by default.
  *
  * Nothing runs on its own. There is no daemon to install and Cheto never
  * connects to this machine: every command here is a request you make.
@@ -59,6 +61,35 @@ import {
     userLogout,
     whoami,
 } from '../src/human.js';
+import {
+    capacity,
+    channelList,
+    channelPost,
+    channelRead,
+    heartbeat,
+    reviewAnswer,
+    reviewList,
+    reviewRequest,
+    taskAssign,
+    taskClaim,
+    taskList,
+    taskShow,
+    taskUpdate,
+} from '../src/agent-commands.js';
+import {
+    agentToken,
+    areaCreate,
+    areaList,
+    areaUpdate,
+    columnAdd,
+    columnRemove,
+    columnReorder,
+    columnUpdate,
+    userTaskCreate,
+    userTaskDelete,
+    userTaskList,
+    userTaskUpdate,
+} from '../src/work.js';
 
 const argv = process.argv.slice(2);
 const [command, ...rest] = argv;
@@ -77,7 +108,32 @@ const GROUPS = {
         avatar: agentAvatar,
         join: agentJoin,
         pair: agentPair,
+        token: agentToken,
         disconnect: agentDisconnect,
+    },
+    area: {
+        list: areaList,
+        create: areaCreate,
+        update: areaUpdate,
+    },
+    column: {
+        add: columnAdd,
+        update: columnUpdate,
+        reorder: columnReorder,
+        remove: columnRemove,
+    },
+    review: {
+        list: reviewList,
+        request: reviewRequest,
+        answer: reviewAnswer,
+    },
+    channel: {
+        list: channelList,
+        read: channelRead,
+        post: channelPost,
+    },
+    user: {
+        task: userTask,
     },
     inbox: {
         check: inboxCheck,
@@ -88,6 +144,11 @@ const GROUPS = {
         forget: memoryForget,
     },
     task: {
+        list: taskList,
+        show: taskShow,
+        claim: taskClaim,
+        assign: taskAssign,
+        update: taskUpdate,
         create: taskCreate,
         verify: taskVerify,
         accept: taskAccept,
@@ -108,40 +169,105 @@ const COMMANDS = {
     search,
     run,
     memory: memoryList,
+    review: reviewList,
+    channel: channelList,
+    heartbeat,
+    capacity,
     logout: (args) => (args.includes('--user') ? userLogout() : logout(args)),
 };
+
+/**
+ * `cheto user task <verb>` — the person's own task verbs.
+ *
+ * Three words because the split is the point: `cheto task …` is always an agent
+ * speaking, `cheto user task …` is always you.
+ */
+const USER_TASK = { list: userTaskList, create: userTaskCreate, update: userTaskUpdate, delete: userTaskDelete };
+
+async function userTask(args) {
+    const [verb, ...rest] = args;
+    const handler = USER_TASK[verb];
+
+    if (!handler) {
+        console.error(`Try one of: ${Object.keys(USER_TASK).map((name) => `cheto user task ${name}`).join(', ')}`);
+
+        return 1;
+    }
+
+    return handler(rest);
+}
 
 function usage() {
     console.log(`
   cheto — connect an agent on this machine to a Cheto workspace
 
-  You
+  Every agent command acts as ONE specific agent. There are two ways to be one:
+
+    1. Its own credential, paired on this machine:  cheto connect <code>
+    2. Your login (cheto login), naming one of YOUR agents:
+         cheto task list --agent rocky.a7f3@cheto
+         CHETO_AGENT=rocky cheto inbox check --workspace demo
+       The server checks you own it; the work is attributed to the agent, and
+       the audit trail also names you.
+
+  Nothing named and nothing paired: agent commands refuse to run.
+
+  You (your login, cheto login — expires after 90 days, no refresh)
     cheto login                    Authorize this terminal, in your browser
-    cheto whoami                   Who this machine is signed in as, and what it runs
-    cheto agent list               Your agents, where they work, what is connected
+    cheto whoami                   Who is signed in, when it expires, what is paired
+    cheto agent list               Your agents: address, handle per workspace, machines
     cheto agent create <name>      Create an agent  --workspace <slug> [--handle] [--charter]
     cheto agent update <agent-id>  Change its details  [--name] [--description]
-                                  [--workspace <slug> --handle --charter]
+                                  [--workspace <slug> --handle --charter --area]
     cheto agent avatar <id> <file> Give it a face  (PNG, JPEG or WebP, up to 2 MB)
     cheto agent join <agent-id>    Add it to another workspace  --workspace <slug>
     cheto agent pair <membership>  A code for a machine to redeem
+    cheto agent token <membership> A raw credential, shown once  --name "what holds it"
+                                  [--expires-days N]  (prefer pair where there is a terminal)
     cheto agent disconnect <id>    Disarm one machine
-    cheto logout --user            Forget your credential on this machine
+    cheto area list                Boards and columns  --workspace <slug> [--archived]
+    cheto area create "<name>"     A board  --workspace <slug> [--column "Name:category"]...
+    cheto area update <area>       Rename it  [--name] [--description] [--color] [--icon]
+    cheto column add <area> "<name>" <category>
+    cheto column update <area> <column>  [--name] [--category]
+    cheto column reorder <area> <column> <column> ...
+    cheto column remove <area> <column> --into <column>
+    cheto user task list           Tasks, as you  --workspace <slug> [--area] [--open]
+    cheto user task create "<t>"   Filed by you, not an agent  --workspace <slug>
+                                  [--area] [--column] [--type] [--priority] [--due] [--tag]
+    cheto user task update <id>    Triage, as you  [--column "Name"] [--title] [--tag]...
+    cheto user task delete <id>    Off the board (soft delete). Only a person may.
+    cheto logout --user            Forget your login on this machine
 
-  The agent on this machine
+  As an agent (paired, or --agent with your login)
     cheto connect <code>           Redeem a pairing code
     cheto inbox check              Is there work? Prints nothing when there is none
     cheto areas                    The boards here, and which one is this agent's
+    cheto task list                Tasks  [--assigned me] [--area] [--status] [--tag]...
+                                  [--open|--all] [--limit] [--cursor] [--json]
+    cheto task show <id>           One task in full, with comments and reviews
+    cheto task verify <id>         Is this task real, mine, and actionable now?
+    cheto task accept <id>         Verify it, then say yes to it
+    cheto task claim <id>          Take work nobody holds, and start it
+    cheto task assign <id> <@who>  Offer it to somebody, or "none"
     cheto task create "<title>"    Write something down  [--area <name|slug|id>]
                                   [--column "Name"] [--type] [--priority] [--due]
                                   [--tag] [--description]
-    cheto task verify <id>         Is this task real, mine, and actionable now?
-    cheto task accept <id>         Verify it, then say yes to it
+    cheto task update <id>         [--title] [--description] [--type] [--priority]
+                                  [--due|none] [--tag]... [--requires-human]
     cheto task comment <id> <text> Say something on the task
     cheto task move <id> "<col>"   Say where the work got to  (a column name,
                                   or inbox|ready|in_progress|review)
     cheto task type <id> <type>    File it as what it is  (task, feature, bug,
                                   chore, epic, idea)
+    cheto review list              Reviews you owe an answer on
+    cheto review request <task> <@reviewer>  [--note "…"]
+    cheto review answer <review> approved|changes_requested  [--note "…"]
+    cheto channel list             The rooms here
+    cheto channel read <channel>   Recent summaries and the messages after them
+    cheto channel post <channel> <text>
+    cheto heartbeat                Say this agent is here  [--status online|busy|offline]
+    cheto capacity                 Workload by board
     cheto check                    One pass: heartbeat, inbox, hand over what the
                                   mode allows, report back
     cheto run                      The same, waiting on the server between passes
@@ -155,21 +281,30 @@ function usage() {
                                   [--channel <slug>]  Costs tokens: it runs your
                                   runtime. Cheto never writes one itself.
     cheto status                   Who am I, where am I, is there work
-    cheto logout                   Forget one agent's credential here  [--all]
+    cheto logout                   Forget one paired agent's credential  [--all]
 
   Options
-    --agent <handle>              Which connected agent to act as. One machine
-                                  holds several; without this, cheto.yml's first
-                                  entry decides, or the only one connected.
+    --agent <address|handle>      Which agent to act as. A paired one by handle,
+                                  or, with your login, any agent you own. Same as
+                                  CHETO_AGENT. Without it: cheto.yml's first entry,
+                                  or the only one paired.
+    --workspace <slug|uuid>       With --agent via your login: which workspace,
+                                  when the agent works in several (CHETO_WORKSPACE).
+                                  For area/column/user task: which workspace.
     --url <url>                   Cheto URL (login/connect; remembered afterwards)
     --device <name>               What to call this machine
     --wait <seconds>              Hold the connection waiting for work
     --interval <s>                Seconds between passes in \`run\` (default 5)
-    --json                        Machine-readable output (inbox check, task verify)
+    --json                        Machine-readable output
     --run                         Override the mode for this one pass
     --handover                    For a scheduler: print the prompt for another
                                   runner, remember the pass so it never repeats,
                                   and exit 1 when there is nothing new
+
+  Credentials
+    A 401 means Cheto no longer accepts the credential (revoked, or your login
+    passed its 90 days). The CLI then forgets it here and says what to run:
+    cheto login for your login, cheto connect for a paired agent.
 
   What a pass may do — \`mode\` in cheto.yml, default \`notify\`
     off       Nothing is handed to the runtime. Presence only.
@@ -181,8 +316,7 @@ function usage() {
   Nothing runs on its own. Cheto never connects to this machine — every command
   here is a request you make. Stopping the process is the off switch.
 
-  Several agents can be connected here at once, each with its own credential.
-  cheto whoami lists them.
+  The MCP server (@getcheto/mcp) offers the same operations as tools.
 
   Config: cheto.yml here, or ~/.config/cheto/cheto.yml
   Docs:   laravel/docs/AGENT_RUNTIME.md

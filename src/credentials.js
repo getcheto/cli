@@ -253,6 +253,7 @@ const SESSION_FILE = join(CONFIG_DIR, 'session.json');
  *
  *     {
  *       "url": "https://cheto.example",     // the last one touched
+ *       "userUrl": "https://cheto.example", // where `cheto login` signed in
  *       "user": "Una persona",              // who is signed in, if anybody
  *       "agents": [
  *         { "url": "…", "handle": "builder", "workspace": "Demo", … }
@@ -403,27 +404,42 @@ export async function migrateLegacySession() {
 /**
  * Which agent a command acts as.
  *
- * Three ways to decide, in order, and a refusal rather than a guess:
+ * Four ways to decide, in order, and a refusal rather than a guess:
  *
- *   1. `--agent <handle>`, which is a person saying so.
+ *   1. `--agent <handle>` (or `CHETO_AGENT`) naming an agent paired here.
  *   2. The first entry in `cheto.yml`, which is this checkout saying so.
- *   3. The only one connected, when there is only one.
+ *   3. The only one paired, when there is only one.
+ *   4. `--agent <address|handle>` naming an agent that is NOT paired here,
+ *      while the person is signed in with `cheto login`: the person's own
+ *      token, sent with `X-Cheto-Agent`. The server checks that the person
+ *      owns that agent; this only builds the request.
  *
- * When none of those settles it the answer is `ambiguous`, never "the first
- * one". A command that quietly comments as the wrong agent is worse than one
- * that stops and asks which.
+ * When none of those settles it the answer is `ambiguous` or `none`, never
+ * "the first one". A command that quietly comments as the wrong agent is worse
+ * than one that stops and asks which. And the fallback in 4 needs a name: a
+ * person's token never becomes "some agent" by default.
  */
-export async function selectAgentSession({ handle = null, preferred = null } = {}) {
+export async function selectAgentSession({ handle = null, preferred = null, workspace = null } = {}) {
     const sessions = await listAgentSessions();
-
-    if (sessions.length === 0) {
-        return { session: null, sessions, reason: 'none' };
-    }
 
     if (handle) {
         const match = sessions.find((entry) => matches(entry, handle));
 
-        return match ? { session: match, sessions, reason: 'asked' } : { session: null, sessions, reason: 'unknown' };
+        if (match) {
+            return { session: match, sessions, reason: 'asked' };
+        }
+
+        const user = await loadUserSession();
+
+        if (user) {
+            return { session: actingAs(user, handle, workspace), sessions, reason: 'user' };
+        }
+
+        return { session: null, sessions, reason: sessions.length === 0 ? 'none' : 'unknown' };
+    }
+
+    if (sessions.length === 0) {
+        return { session: null, sessions, reason: 'none' };
     }
 
     if (preferred) {
@@ -439,8 +455,35 @@ export async function selectAgentSession({ handle = null, preferred = null } = {
         : { session: null, sessions, reason: 'ambiguous' };
 }
 
+/**
+ * A session that is the person's token speaking as one of their agents.
+ *
+ * `via: 'user'` is what tells the 401 handler to forget the person's
+ * credential rather than an agent's: the token that failed is the one to drop.
+ */
+function actingAs(user, agent, workspace) {
+    const named = String(agent).trim();
+
+    return {
+        url: user.url,
+        token: user.token,
+        via: 'user',
+        user: user.user,
+        agent: named,
+        handle: named.replace(/^@/, '').toLowerCase(),
+        workspace: workspace ?? null,
+        mention: named.includes('@') && !named.startsWith('@') ? named : `@${named.replace(/^@/, '')}`,
+        headers: {
+            'X-Cheto-Agent': named,
+            ...(workspace ? { 'X-Cheto-Workspace': String(workspace) } : {}),
+        },
+    };
+}
+
 function matches(entry, handle) {
-    return String(entry.handle ?? '').toLowerCase() === String(handle).toLowerCase();
+    const wanted = String(handle).replace(/^@/, '').toLowerCase();
+
+    return String(entry.handle ?? '').toLowerCase() === wanted || (entry.address && String(entry.address).toLowerCase() === wanted);
 }
 
 /**
@@ -453,13 +496,18 @@ function matches(entry, handle) {
 export async function loadUserSession() {
     const config = await readSessionFile();
 
-    if (!config?.url) {
+    // `userUrl` is where `cheto login` signed in. The top-level `url` is only
+    // the fallback for a file written before the two were kept apart: it is
+    // "the last Cheto touched", and `cheto connect` moves it.
+    const url = config?.userUrl ?? config?.url;
+
+    if (!url) {
         return null;
     }
 
-    const token = await loadUserCredential(config.url);
+    const token = await loadUserCredential(url);
 
-    return token ? { url: config.url, user: config.user ?? null, token } : null;
+    return token ? { url, user: config.user ?? null, token } : null;
 }
 
 /** Forget one agent: its credential, and its row in the session file. */

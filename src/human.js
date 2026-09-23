@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { basename, extname } from 'node:path';
 import { ChetoError, ChetoUserApi } from './api.js';
+import { userApiFor } from './clients.js';
 import {
     forgetUserCredential,
     listAgentSessions,
@@ -95,14 +96,23 @@ export async function login(args = []) {
         // Straight to the keychain. It is never printed, so there is nothing
         // for a screen recording or a shell history to keep.
         const store = await saveUserCredential(url, collected.token);
-        await saveSession({ url, user: collected.user.name });
+        // `userUrl` as well as `url`: `url` is "the last Cheto touched" and
+        // `cheto connect` moves it; the login has to stay where it was made.
+        await saveSession({ url, userUrl: url, user: collected.user.name });
 
         log('');
         log(`  Signed in as ${collected.user.name} <${collected.user.email}>`);
         log(`  Credential stored in: ${store}`);
         log(`  Can: ${collected.scopes.join(', ')}`);
+
+        if (collected.expires_at) {
+            log(`  Expires: ${collected.expires_at.slice(0, 10)}  (run cheto login again then; there is no refresh)`);
+        }
+
         log('');
-        log('  Next: cheto agent create "Builder" --workspace demo');
+        log('  Act as one of your agents:  cheto <command> --agent <address|handle>');
+        log('  Your agents and their addresses:  cheto agent list');
+        log('  Or create one:  cheto agent create "Builder" --workspace demo');
         log('');
 
         return 0;
@@ -115,7 +125,7 @@ export async function login(args = []) {
 }
 
 /** `cheto whoami` — who this machine is signed in as, and what it runs. */
-export async function whoami() {
+export async function whoami(args = [], { now = new Date() } = {}) {
     const session = await loadUserSession();
     const config = await loadConfig();
 
@@ -124,7 +134,7 @@ export async function whoami() {
         log('  Not signed in. Run: cheto login');
         log('');
     } else {
-        const api = new ChetoUserApi({ url: session.url, token: session.token });
+        const api = userApiFor(session);
 
         try {
             const me = await api.me();
@@ -133,6 +143,15 @@ export async function whoami() {
             log(`  Cheto:       ${session.url}`);
             log(`  Signed in:  ${me.user.name} <${me.user.email}>`);
             log(`  Can:        ${me.scopes.join(', ')}`);
+            log(`  Expires:    ${describeExpiry(me.token?.expires_at ?? null, now)}`);
+
+            if (expiresSoon(me.token?.expires_at ?? null, now)) {
+                warn('  Your login expires in less than 7 days. Run cheto login again before then: there is no refresh.');
+            }
+
+            if (!me.scopes.includes('agents:act')) {
+                warn('  This login cannot act as your agents (no agents:act). Run cheto login again to get it.');
+            }
             log(`  Workspaces: ${me.workspaces.map((workspace) => workspace.slug).join(', ') || 'none'}`);
             log(`  Secrets:    ${await storeName()}`);
             log('');
@@ -157,6 +176,12 @@ export async function whoami() {
         log('');
     }
 
+    if (session) {
+        log('  Signed in, so any agent you own can be acted as without pairing:');
+        log('    cheto <command> --agent <address|handle>   (addresses: cheto agent list)');
+        log('');
+    }
+
     // What this checkout would run, which is a different question from who you
     // are. A machine with no config runs nothing, and saying so is the point.
     if (config) {
@@ -173,8 +198,14 @@ export async function whoami() {
     return 0;
 }
 
-/** `cheto agent list` — the agents you own, and where each one works. */
-export async function agentList() {
+/**
+ * `cheto agent list` — the agents you own, and the names to act as them by.
+ *
+ * The address is the global one (`rocky.a7f3@cheto`) and the handle is what it
+ * answers to in one workspace. Either goes after `--agent`, and either is what
+ * an agent puts in its own system prompt to know who it is.
+ */
+export async function agentList(args = []) {
     const api = await requireUser();
 
     if (!api) {
@@ -183,6 +214,12 @@ export async function agentList() {
 
     try {
         const { data } = await api.agents();
+
+        if (args.includes('--json')) {
+            log(JSON.stringify(data, null, 2));
+
+            return 0;
+        }
 
         if (data.length === 0) {
             log('No agents yet. Create one: cheto agent create "Builder" --workspace demo');
@@ -197,23 +234,28 @@ export async function agentList() {
             // for it, and a list that names the ids it needs is the difference
             // between one command and a trip through the API.
             log(`  ${agent.name}  (${agent.slug})  ·  agent ${agent.id}`);
+            log(`    address: ${agent.address ?? 'not reported by this Cheto'}`);
 
             if (agent.memberships.length === 0) {
                 log('    not in any workspace yet');
             }
 
             agent.memberships.forEach((membership) => {
-                const live = membership.connections.filter((connection) => !connection.revoked_at);
+                const live = (membership.connections ?? []).filter((connection) => !connection.revoked_at);
+                const workspace = membership.workspace ? `${membership.workspace.slug}${membership.workspace.name ? ` (${membership.workspace.name})` : ''}` : '?';
 
-                log(`    ${membership.mention} in ${membership.workspace?.slug ?? '?'}  ·  ${membership.presence}  ·  membership ${membership.id}`);
+                log(`    handle ${membership.handle ?? String(membership.mention ?? '').replace(/^@/, '')} in ${workspace}  ·  ${membership.presence ?? 'unknown'}  ·  membership ${membership.id}`);
 
                 live.forEach((connection) => {
-                    log(`      ${connection.status.value === 'offline' ? '○' : '●'} ${connection.label} — ${connection.runtime_name ?? 'unknown runtime'} · connection ${connection.id}`);
+                    log(`      ${connection.status?.value === 'offline' ? 'offline' : 'online '} ${connection.label} — ${connection.runtime_name ?? 'unknown runtime'} · connection ${connection.id}`);
                 });
             });
 
             log('');
         });
+
+        log('  Act as one:  cheto <command> --agent <address>   (or --agent <handle> --workspace <slug>)');
+        log('');
 
         return 0;
     } catch (error) {
@@ -534,7 +576,7 @@ export async function userLogout() {
     return 0;
 }
 
-async function requireUser() {
+export async function requireUser() {
     const session = await loadUserSession();
 
     if (!session) {
@@ -543,7 +585,7 @@ async function requireUser() {
         return null;
     }
 
-    return new ChetoUserApi({ url: session.url, token: session.token });
+    return userApiFor(session);
 }
 
 function describe(runtime) {
@@ -604,4 +646,28 @@ function areaFlag(args) {
     }
 
     return ['none', 'null', ''].includes(String(value).trim().toLowerCase()) ? null : String(value).trim();
+}
+
+/** When the login stops working, in words. */
+export function describeExpiry(expiresAt, now = new Date()) {
+    if (!expiresAt) {
+        return 'never (this token has no expiry)';
+    }
+
+    const days = Math.floor((new Date(expiresAt).getTime() - now.getTime()) / 86_400_000);
+
+    if (days < 0) {
+        return `${expiresAt.slice(0, 10)} — already expired. Run: cheto login`;
+    }
+
+    return `${expiresAt.slice(0, 10)}  (in ${days} day${days === 1 ? '' : 's'})`;
+}
+
+/** Under a week left: enough warning to log in again on a working day. */
+export function expiresSoon(expiresAt, now = new Date()) {
+    if (!expiresAt) {
+        return false;
+    }
+
+    return new Date(expiresAt).getTime() - now.getTime() < 7 * 86_400_000;
 }

@@ -13,6 +13,7 @@
 import { hostname } from 'node:os';
 import { ChetoApi, ChetoError } from './api.js';
 import { runCommand, describeRuntime } from './adapters/command.js';
+import { apiFor } from './clients.js';
 import { loadConfig } from './config.js';
 import {
     forgetAgent,
@@ -97,6 +98,9 @@ export async function connect(args) {
         mention: result.membership?.mention ?? null,
         connection: result.connection?.label ?? null,
         membership: result.membership?.id ?? null,
+        // The global name, so `--agent rocky.a7f3@cheto` finds this paired
+        // credential rather than falling through to the person's login.
+        address: result.agent.address ?? null,
     });
 
     const others = (await listAgentSessions()).filter((entry) => entry.handle !== handle);
@@ -141,7 +145,7 @@ export async function inboxCheck(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const asJson = args.includes('--json');
     const config = await loadConfig();
 
@@ -226,7 +230,7 @@ export async function inboxCheck(args = []) {
  * is not. A script can branch on that without parsing anything.
  */
 export async function taskVerify(args = []) {
-    const id = args.find((argument) => !argument.startsWith('--'));
+    const [id] = positionals(args);
 
     if (!id) {
         warn('Usage: cheto task verify <task-id> [--json]');
@@ -240,7 +244,7 @@ export async function taskVerify(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const asJson = args.includes('--json');
 
     let me;
@@ -325,7 +329,7 @@ export async function taskVerify(args = []) {
  * pasted into a chat message is exactly the move this product refuses to make.
  */
 export async function taskAccept(args = []) {
-    const id = args.find((argument) => !argument.startsWith('--'));
+    const [id] = positionals(args);
 
     if (!id) {
         warn('Usage: cheto task accept <task-id>');
@@ -335,9 +339,8 @@ export async function taskAccept(args = []) {
 
     // Prints the verdict as it goes, so the person sees what was checked
     // rather than a bare yes.
-    const as = flag(args, '--agent');
-
-    if ((await taskVerify(as ? [id, '--agent', as] : [id])) !== 0) {
+    // The same flags, so verification asks as the same agent the accept will.
+    if ((await taskVerify(args.filter((argument) => argument !== '--json'))) !== 0) {
         warn('Not accepting: verification refused. Nothing was sent to Cheto.');
 
         return 1;
@@ -349,7 +352,7 @@ export async function taskAccept(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const result = await api.accept(id, `cheto-accept-${id}`);
@@ -366,7 +369,7 @@ export async function taskAccept(args = []) {
 
 /** `cheto task comment <id> <text>` — say something where the work is. */
 export async function taskComment(args = []) {
-    const [id, ...rest] = args.filter((argument) => !argument.startsWith('--'));
+    const [id, ...rest] = positionals(args);
     const body = rest.join(' ').trim();
 
     if (!id || !body) {
@@ -381,7 +384,7 @@ export async function taskComment(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         await api.comment(id, body, `cheto-comment-${id}-${Date.now()}`);
@@ -407,7 +410,7 @@ const TASK_TYPES = ['task', 'feature', 'bug', 'chore', 'epic', 'idea'];
  * something *is* decides nothing about who does it or whether it is done.
  */
 export async function taskType(args = []) {
-    const [id, type] = args.filter((argument) => !argument.startsWith('--'));
+    const [id, type] = positionals(args);
 
     if (!id || !TASK_TYPES.includes(String(type))) {
         warn(`Usage: cheto task type <task-id> <${TASK_TYPES.join('|')}>`);
@@ -421,7 +424,7 @@ export async function taskType(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         // Keyed by what the change is, not by the clock: two passes deciding the
@@ -470,8 +473,7 @@ const TASK_STATUSES = ['inbox', 'ready', 'in_progress', 'review'];
 export async function taskMove(args = []) {
     // Strip option values as well as option names: otherwise `--agent ceo`
     // is accidentally appended to the requested column name.
-    const positional = args.filter((argument, index) => !argument.startsWith('--') && !(index > 0 && args[index - 1] === '--agent'));
-    const [id, ...rest] = positional;
+    const [id, ...rest] = positionals(args);
     const wanted = rest.join(' ').trim();
 
     if (!id || !wanted) {
@@ -488,7 +490,7 @@ export async function taskMove(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const { data: task } = await api.task(id);
@@ -639,7 +641,7 @@ function categoryOf(column) {
  *   cheto task create "Falla el alta" --area backlog-tecnico --column "Esperando"
  */
 export async function taskCreate(args = []) {
-    const title = args.filter((argument) => !argument.startsWith('--'))[0];
+    const [title] = positionals(args);
 
     if (!title) {
         warn('Usage: cheto task create "What it is" [--area <name|slug|id>] [--column "Name"]');
@@ -655,7 +657,7 @@ export async function taskCreate(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const placement = await placementFor(api, flag(args, '--area'), flag(args, '--column'));
@@ -705,7 +707,7 @@ export async function areas(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const me = await api.me();
@@ -820,7 +822,7 @@ export async function memoryList(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const { data } = await api.memories({ q: flag(args, '--q') });
@@ -849,7 +851,7 @@ export async function memoryList(args = []) {
 
 /** `cheto memory get <name>` — the whole of one, by the name it answers to. */
 export async function memoryGet(args = []) {
-    const key = args.find((argument) => !argument.startsWith('--'));
+    const [key] = positionals(args);
 
     if (!key) {
         warn('Usage: cheto memory get <name>');
@@ -863,7 +865,7 @@ export async function memoryGet(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const { data } = await api.memories({ key });
@@ -890,7 +892,7 @@ export async function memoryGet(args = []) {
 
 /** `cheto memory write "Title" "What to remember" [--key name]` */
 export async function memoryWrite(args = []) {
-    const [title, body] = args.filter((argument) => !argument.startsWith('--'));
+    const [title, body] = positionals(args);
 
     if (!title || !body) {
         warn('Usage: cheto memory write "Title" "What to remember" [--key staging-access]');
@@ -904,7 +906,7 @@ export async function memoryWrite(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const key = flag(args, '--key');
 
     try {
@@ -924,7 +926,7 @@ export async function memoryWrite(args = []) {
 
 /** `cheto memory forget <id>` — only what this agent wrote. */
 export async function memoryForget(args = []) {
-    const id = args.find((argument) => !argument.startsWith('--'));
+    const [id] = positionals(args);
 
     if (!id) {
         warn('Usage: cheto memory forget <memory-id>     (cheto memory shows them)');
@@ -938,7 +940,7 @@ export async function memoryForget(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         await api.forgetMemory(id);
@@ -968,7 +970,7 @@ export async function memoryForget(args = []) {
  * shell can branch on it without parsing anything.
  */
 export async function search(args = []) {
-    const query = args.filter((argument) => !argument.startsWith('--'))[0];
+    const [query] = positionals(args);
 
     if (!query) {
         warn('Usage: cheto search "what somebody said" [--kind message|task|comment|compact] [--limit 20] [--json]');
@@ -982,7 +984,7 @@ export async function search(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const asJson = args.includes('--json');
 
     // Repeatable: `--kind task --kind comment` narrows to both.
@@ -1047,7 +1049,7 @@ export async function compact(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const config = await loadConfig();
     const entry = entryFor(config, session.handle) ?? {};
     const wanted = flag(args, '--channel');
@@ -1179,7 +1181,7 @@ export async function status(args = []) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
 
     try {
         const me = await api.me();
@@ -1191,6 +1193,13 @@ export async function status(args = []) {
         log(`  Cheto:      ${session.url}`);
         log(`  Workspace: ${me.workspace.name}`);
         log(`  Agent:     ${me.agent.name}  (${me.agent.status.value})`);
+
+        // Which credential is speaking. The person's login acting as one of
+        // their agents behaves exactly like the agent's own, and the audit
+        // trail names both — but a person reading this should see which.
+        if (session.via === 'user' || me.via === 'user_token') {
+            log(`  Via:       your login, acting for ${me.acting_for?.name ?? session.user ?? 'you'} — not a credential paired here`);
+        }
         log(`  Secrets:   ${await storeName()}`);
         log(`  Runtime:   ${describeRuntime(entry.runtime) ?? 'not configured — cheto will print work instead of running anything'}`);
         log(`  Mode:      ${entry.mode ?? DEFAULT_MODE}  ${describeMode(entry.mode ?? DEFAULT_MODE)}`);
@@ -1248,7 +1257,7 @@ export async function check(args = [], state = {}) {
         return 1;
     }
 
-    const api = new ChetoApi({ url: session.url, token: session.token });
+    const api = apiFor(session);
     const config = await loadConfig();
     const entry = entryFor(config, session.handle);
 
@@ -1550,6 +1559,13 @@ export async function logout(args = []) {
         return 1;
     }
 
+    if (session.via === 'user') {
+        warn(`${session.agent} is not paired on this machine: commands act as it through your login.`);
+        warn('To stop that here, sign out: cheto logout --user');
+
+        return 1;
+    }
+
     const store = await forgetAgent(session.url, session.handle);
     const left = await listAgentSessions();
 
@@ -1651,16 +1667,23 @@ function entryFor(config, handle) {
 /**
  * The agent this command speaks as.
  *
- * `--agent <handle>` first, then whatever `cheto.yml` names first, then the only
- * one connected. When several are connected and nothing picks between them it
- * refuses and lists them: acting as the wrong agent is a comment in somebody
- * else's name, and there is no undoing that from here.
+ * Every agent command acts as one specific agent, and there are two ways to
+ * be one: the agent's own credential, paired here with `cheto connect`; or the
+ * person's login from `cheto login`, naming which of their agents with
+ * `--agent <address|handle>` (or `CHETO_AGENT`, the same variable the MCP
+ * reads). See `selectAgentSession` for the order.
+ *
+ * When nothing names an agent it refuses and says how to name one: acting as
+ * the wrong agent is a comment in somebody else's name, and there is no undoing
+ * that from here.
  */
-async function requireSession(args = []) {
+export async function requireSession(args = []) {
     const config = await loadConfig();
+    const asked = agentFlag(args);
     const { session, sessions, reason } = await selectAgentSession({
-        handle: flag(args, '--agent'),
+        handle: asked,
         preferred: config?.agents?.[0]?.agent ?? null,
+        workspace: flag(args, '--workspace') ?? process.env.CHETO_WORKSPACE ?? null,
     });
 
     if (session) {
@@ -1668,28 +1691,87 @@ async function requireSession(args = []) {
     }
 
     if (reason === 'none') {
-        warn('Not connected. Run: cheto connect <pairing-code>');
-        warn('Get a code from the Agents page in Cheto.');
+        warn(asked ? `No agent called "${asked}" is paired here, and nobody is signed in to act as it.` : 'No agent to act as.');
+        warn('Every agent command acts as one specific agent. Either:');
+        warn('  pair one on this machine:   cheto connect <pairing-code>');
+        warn('  or sign in as yourself:     cheto login');
+        warn('  and name one of your agents: --agent <address|handle>  (or CHETO_AGENT)');
+        warn('cheto agent list shows each agent\'s address and handles.');
 
         return null;
     }
 
     if (reason === 'unknown') {
-        warn(`No agent called "${flag(args, '--agent')}" is connected on this machine.`);
+        warn(`No agent called "${asked}" is paired on this machine.`);
+        warn('To act as one of your own agents without pairing it, sign in first: cheto login');
     } else {
-        warn('Several agents are connected here and nothing says which one to use.');
+        warn('Several agents are paired here and nothing says which one to use.');
     }
 
-    warn(`Connected: ${sessions.map((entry) => `@${entry.handle ?? '?'} (${entry.workspace ?? '?'})`).join(', ')}`);
-    warn('Pick one with --agent <handle>, or name it first in cheto.yml.');
+    warn(`Paired: ${sessions.map((entry) => `@${entry.handle ?? '?'} (${entry.workspace ?? '?'})`).join(', ')}`);
+    warn('Pick one with --agent <handle> (or CHETO_AGENT), or name it first in cheto.yml.');
 
     return null;
 }
 
-function flag(args, name) {
+/** `--agent`, then `CHETO_AGENT`. A flag typed now outranks the environment. */
+function agentFlag(args) {
+    const value = flag(args, '--agent') ?? process.env.CHETO_AGENT ?? null;
+
+    return value && String(value).trim() !== '' ? String(value).trim() : null;
+}
+
+export function flag(args, name) {
     const index = args.indexOf(name);
 
     return index !== -1 && args[index + 1] ? args[index + 1] : null;
+}
+
+/** Every value of a flag that may repeat: `--tag a --tag b`. */
+export function flags(args, name) {
+    return args.reduce((found, argument, index) => (argument === name && args[index + 1] ? [...found, args[index + 1]] : found), []);
+}
+
+/** The flags that take no value. Every other `--x` swallows the word after it. */
+const SWITCHES = new Set([
+    '--json',
+    '--run',
+    '--quiet',
+    '--handover',
+    '--all',
+    '--open',
+    '--requires-human',
+    '--no-requires-human',
+    '--user',
+    '--archived',
+    '--count',
+]);
+
+/**
+ * The words that are not flags or flag values.
+ *
+ * Filtering on `--` alone used to make `cheto task comment 12 hi --agent ceo`
+ * post "hi ceo". Now that `--agent` and `--workspace` are how a command picks
+ * who it is, a value swallowed into the text would be worse than a typo.
+ */
+export function positionals(args) {
+    const found = [];
+
+    for (let index = 0; index < args.length; index += 1) {
+        const argument = args[index];
+
+        if (argument.startsWith('--')) {
+            if (!SWITCHES.has(argument)) {
+                index += 1;
+            }
+
+            continue;
+        }
+
+        found.push(argument);
+    }
+
+    return found;
 }
 
 function sleep(ms) {

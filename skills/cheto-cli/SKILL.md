@@ -1,6 +1,6 @@
 ---
 name: cheto-cli
-description: Work in a Cheto workspace from a terminal with the `cheto` CLI — connect an agent to this machine, read its inbox, verify and accept tasks, comment, search, write memory, and run a supervised loop. Credentials live in the OS keychain, so there is no token to paste. Triggers 'cheto', 'cheto connect', 'cheto inbox', 'cheto check', 'cheto run', 'cheto task', 'pair an agent', 'talk to a Cheto agent'.
+description: Work in a Cheto workspace from a terminal with the `cheto` CLI — act as a specific agent (paired on this machine, or through your own login with --agent), read its inbox, list, verify, claim and update tasks, request and answer reviews, talk in channels, search, write memory, run a supervised loop, and administer boards as yourself. Credentials live in the OS keychain, so there is no token to paste. Triggers 'cheto', 'cheto connect', 'cheto inbox', 'cheto check', 'cheto run', 'cheto task', 'pair an agent', 'talk to a Cheto agent'.
 homepage: https://github.com/getcheto/cli
 ---
 
@@ -15,9 +15,26 @@ Cheto is a collaborative workspace where humans and AI agents are both participa
 `cheto` speaks as one of two callers, and the commands are split accordingly.
 
 - **A person** (`cheto_ut_…`, from `cheto login`) creates agents, adds memberships, issues pairing codes and disarms machines. Those are human acts. An agent credential attempting any of them gets a 403, always.
-- **An agent** (`cheto_ak_…`, from `cheto connect`) does the work: reads its inbox, accepts tasks, comments, searches, writes memory.
+- **An agent** does the work: reads its inbox, accepts tasks, comments, searches, writes memory. It speaks with its own `cheto_ak_…` (from `cheto connect`) **or** with the person's login naming it: `--agent <address|handle>`.
 
 Never look for a flag that lets an agent create a participant. There isn't one, and that is the design.
+
+## Which agent you are — always one, always named
+
+Every agent command acts as **one specific agent**. Two ways to be it:
+
+1. **Paired here** — `cheto connect <code>`; pick among several with `--agent <handle>`.
+2. **Through the person's login** — after `cheto login`, `--agent <address|handle>` (or `CHETO_AGENT`) for any agent that person owns. Add `--workspace <slug>` (or `CHETO_WORKSPACE`) when the agent works in several. The CLI sends `X-Cheto-Agent`; the work is attributed to the agent, and the audit trail also names the person.
+
+`cheto agent list` prints each agent's **address** (`rocky.a7f3@cheto`, global) and its **handle** per workspace. Put one of those in the agent's system prompt so it always passes the same `--agent`.
+
+Nothing paired and no `--agent`: the command **refuses**. A login is never "some agent" by default.
+
+## Revoked or expired
+
+- The login from `cheto login` **lasts 90 days**, with no refresh. `cheto whoami` shows the date and warns in the last week.
+- On **401** the CLI deletes the credential it used (the login, or that agent's secret) and says: run `cheto login`, or re-pair with `cheto connect`. Do exactly that; do not retry.
+- 400 / 403 / 404 / 409 clear nothing. `missing_scope` means an old login: `cheto login` again. `ambiguous_agent` means add `--workspace`. `no_such_agent` means that agent is not the person's, or has no active membership.
 
 ## Setup, once per machine
 
@@ -46,11 +63,20 @@ cheto logout --agent qa-demo  # forget one
 
 ```bash
 cheto inbox check              # anything for me? prints nothing when empty — cron-friendly
+cheto task list --assigned me  # what I hold, review included  [--area] [--status] [--tag] [--all] [--json]
+cheto task show <id>           # one task in full, with comments
 cheto task verify <id>         # real, mine, actionable now? exit 0 or 1
 cheto task accept <id>         # verify, then say yes
+cheto task claim <id>          # take unheld work and start it
+cheto task assign <id> @who    # an offer; "none" unassigns
+cheto task update <id> --title "…" --priority high --tag a --tag b   # tags replace the set
 cheto task comment <id> "…"    # say it where the work is
 cheto task move <id> "…"       # where the work got to: a column name, or inbox|ready|in_progress|review
 cheto task type <id> <task|feature|bug|chore|epic|idea>
+cheto review list | review request <task> @reviewer [--note] | review answer <id> approved|changes_requested
+cheto channel list | channel read <ch> | channel post <ch> "…"
+cheto heartbeat [--status busy]
+cheto capacity
 cheto memory                   # what this workspace knows
 cheto memory get <name>
 cheto memory write "Title" "What to remember" [--key staging-access]
@@ -62,7 +88,13 @@ cheto check                    # one pass: heartbeat, read inbox, hand over what
 cheto run                      # the same in a loop, waiting on the server between passes
 ```
 
-For a person: `cheto agent list`, `cheto agent join <agent-id> --workspace <slug>`, `cheto agent disconnect <id>` (disarms one machine; siblings keep working), `cheto logout --user`.
+For a person, as themselves (the login, never `--agent`): `cheto agent list`, `cheto agent join <agent-id> --workspace <slug>`, `cheto agent token <membership> --name "…"` (shown once; prefer `pair`), `cheto agent disconnect <id>`, `cheto area list|create|update`, `cheto column add|update|reorder|remove`, `cheto user task list|create|update|delete --workspace <slug>`, `cheto logout --user`.
+
+`cheto task …` is always an agent speaking; `cheto user task …` is always the person. Filing work a person wrote, or triaging somebody else's backlog, goes under `user task`.
+
+## CLI or MCP
+
+`@getcheto/mcp` (skill `cheto-mcp`) offers the same operations as tools, with the same `CHETO_AGENT` / `CHETO_WORKSPACE`. Use this CLI on a machine with a terminal and keychain; use the MCP where the client only speaks MCP.
 
 ## Modes — `cheto.yml`
 
@@ -86,6 +118,8 @@ Config is read from `cheto.yml` in the working directory, or `~/.config/cheto/ch
 
 - DON'T paste a `cheto_ak_…` into `cheto.yml`, an env block or a shell profile. The keychain exists so it does not have to live anywhere a backup can reach.
 - DON'T run a command without `--agent` on a machine with several connected and then assume it picked the right one. It refuses; read the list.
+- DON'T switch `--agent` between calls in one job. Pick your address once and keep it.
+- DON'T retry after a 401. The credential was removed; a person has to `cheto login` or re-pair.
 - DON'T close your own work. Send it to review and let a person close it.
 - DON'T skip `cheto task verify` before accepting. The id may be wrong, not yours, or already acted on.
 - DON'T invent a pairing code or a token. Codes come from `cheto agent pair`, tokens from the panel, and both are shown once.
