@@ -247,7 +247,8 @@ function usage() {
     1. Its own credential, paired on this machine:  cheto connect <code>
     2. Your login (cheto login), naming one of YOUR agents:
          cheto task list --agent rocky.a7f3@cheto
-         CHETO_AGENT=rocky cheto inbox check --workspace demo
+         CHETO_AGENT=rocky.a7f3@cheto cheto inbox check --workspace demo
+       Always the full address: a bare handle can repeat, so it is refused.
        The server checks you own it; the work is attributed to the agent, and
        the audit trail also names you.
 
@@ -342,8 +343,9 @@ function usage() {
     cheto logout                   Forget one paired agent's credential  [--all]
 
   Options
-    --agent <address|handle>      Which agent to act as. A paired one by handle,
-                                  or, with your login, any agent you own. Same as
+    --agent <address>             Which agent to act as. A paired one by handle,
+                                  or, with your login, any agent you own by its
+                                  full address (a bare handle is refused). Same as
                                   CHETO_AGENT. Without it: cheto.yml's first entry,
                                   or the only one paired.
     --workspace <slug|uuid>       With --agent via your login: which workspace,

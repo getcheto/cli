@@ -110,7 +110,7 @@ export async function login(args = []) {
         }
 
         log('');
-        log('  Act as one of your agents:  cheto <command> --agent <address|handle>');
+        log('  Act as one of your agents:  cheto <command> --agent <address>');
         log('  Your agents and their addresses:  cheto agent list');
         log('  Or create one:  cheto agent create "Builder" --workspace demo');
         log('');
@@ -178,7 +178,7 @@ export async function whoami(args = [], { now = new Date() } = {}) {
 
     if (session) {
         log('  Signed in, so any agent you own can be acted as without pairing:');
-        log('    cheto <command> --agent <address|handle>   (addresses: cheto agent list)');
+        log('    cheto <command> --agent <address>   (addresses: cheto agent list)');
         log('');
     }
 
@@ -258,7 +258,7 @@ export async function agentList(args = []) {
             log('');
         });
 
-        log('  Act as one:  cheto <command> --agent <address>   (or --agent <handle> --workspace <slug>)');
+        log('  Act as one:  cheto <command> --agent <address>   (the full address; a bare handle is refused)');
         log('');
 
         return 0;

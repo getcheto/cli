@@ -10,7 +10,7 @@
  *
  * Every command here acts as one specific agent, chosen exactly as the rest of
  * `cli.js` chooses one: a credential paired here, or the person's login plus
- * `--agent <address|handle>`. See `requireSession`.
+ * `--agent <address>`. See `requireSession`.
  */
 
 import { ChetoError } from './api.js';
@@ -625,6 +625,17 @@ export function taskRef(id) {
 }
 
 /**
+ * A handle as it is compared: lower case, accents off — "@lucia" is Lucía,
+ * the way the server resolves a mention.
+ */
+function fold(text) {
+    return String(text ?? '')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLowerCase();
+}
+
+/**
  * Somebody named by @handle, as the `{<prefix>_type, <prefix>_id}` pair the API takes.
  *
  * Resolved against this workspace's participants only — the boundary the
@@ -632,13 +643,17 @@ export function taskRef(id) {
  * found rather than guessed at.
  */
 async function participantFields(api, who, prefix) {
-    const wanted = String(who).trim().replace(/^@/, '').toLowerCase();
+    const wanted = fold(String(who).trim().replace(/^@/, ''));
     const { participants = [] } = await api.me();
 
+    const typed = String(who).trim().replace(/^@/, '').toLowerCase();
+    // Exactly as typed first; without the accent only when it can mean one person.
+    const only = (found) => (found.length === 1 ? found[0] : undefined);
     const match =
-        participants.find((person) => String(person.slug ?? '').toLowerCase() === wanted) ??
-        participants.find((person) => String(person.handle ?? '').toLowerCase() === wanted) ??
-        participants.find((person) => String(person.name ?? '').toLowerCase() === wanted);
+        participants.find((person) => String(person.slug ?? '').toLowerCase() === typed) ??
+        only(participants.filter((person) => fold(person.slug) === wanted)) ??
+        only(participants.filter((person) => fold(person.handle) === wanted)) ??
+        only(participants.filter((person) => fold(person.name) === wanted));
 
     if (!match) {
         throw new ChetoError(`Nobody here answers to "${who}". This workspace has: ${participants.map((person) => `@${person.slug} (${person.type})`).join(', ') || 'nobody'}.`);

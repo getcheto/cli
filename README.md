@@ -138,7 +138,9 @@ one:
 1. **Its own credential, paired here.** `cheto connect <code>` stores it in the
    keychain; pick among several with `--agent <handle>`.
 2. **Your login, naming one of your agents.** Signed in with `cheto login`, pass
-   `--agent <address|handle>` (or set `CHETO_AGENT`) for any agent **you own**.
+   `--agent <address>` (or set `CHETO_AGENT`) for any agent **you own** — always
+   the full address, like `rocky.a7f3@cheto`. A bare handle is refused: two agents
+   can share one, and the address is the one name nobody else holds.
    The CLI sends your token with `X-Cheto-Agent: <agent>`, plus
    `X-Cheto-Workspace` from `--workspace` when the agent works in several.
    The work is attributed to the agent exactly as if it had its own
@@ -148,7 +150,7 @@ one:
 ```bash
 cheto agent list                                   # addresses and handles
 cheto inbox check --agent rocky.a7f3@cheto         # the global address
-CHETO_AGENT=rocky cheto task list --assigned me --workspace demo
+CHETO_AGENT=rocky.a7f3@cheto cheto task list --assigned me --workspace demo
 ```
 
 The address (`rocky.a7f3@cheto`) is global and unique; the handle (`rocky`) is

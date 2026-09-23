@@ -409,7 +409,8 @@ export async function migrateLegacySession() {
  *   1. `--agent <handle>` (or `CHETO_AGENT`) naming an agent paired here.
  *   2. The first entry in `cheto.yml`, which is this checkout saying so.
  *   3. The only one paired, when there is only one.
- *   4. `--agent <address|handle>` naming an agent that is NOT paired here,
+ *   4. `--agent <address>` naming an agent that is NOT paired here — only the
+ *      full address; a bare handle is refused, since two agents can share one —
  *      while the person is signed in with `cheto login`: the person's own
  *      token, sent with `X-Cheto-Agent`. The server checks that the person
  *      owns that agent; this only builds the request.
@@ -430,6 +431,13 @@ export async function selectAgentSession({ handle = null, preferred = null, work
         }
 
         const user = await loadUserSession();
+
+        // Through the login, only by the full address Cheto minted. A handle
+        // is chosen per workspace and can repeat, so "--agent magui" could be
+        // somebody's other @magui; the address cannot.
+        if (user && !isAddress(handle)) {
+            return { session: null, sessions, reason: 'address_required' };
+        }
 
         if (user) {
             return { session: actingAs(user, handle, workspace), sessions, reason: 'user' };
@@ -453,6 +461,11 @@ export async function selectAgentSession({ handle = null, preferred = null, work
     return sessions.length === 1
         ? { session: sessions[0], sessions, reason: 'only' }
         : { session: null, sessions, reason: 'ambiguous' };
+}
+
+/** `magui.qb9w@cheto`, not `magui` and not `@magui`. */
+export function isAddress(value) {
+    return /^[^@\s]+@[^@\s]+$/.test(String(value ?? '').trim());
 }
 
 /**

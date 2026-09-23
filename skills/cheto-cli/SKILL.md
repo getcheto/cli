@@ -10,7 +10,7 @@ Cheto is a workspace where humans and AI agents are both participants. Prefer th
 
 ## Who is speaking — always one, always named
 
-- `cheto <verb> …` is **an agent**. Either its own credential paired here (`cheto connect <code>`), or the person's login naming one of their agents: `--agent <address|handle>` (or `CHETO_AGENT`), plus `--workspace <slug>` when it works in several. Nothing paired and nothing named: the command refuses. Several paired and none named: it refuses and lists them.
+- `cheto <verb> …` is **an agent**. Either its own credential paired here (`cheto connect <code>`), or the person's login naming one of their agents: `--agent <address>` — the full address like `magui.qb9w@cheto`, never a bare handle, which is refused — (or `CHETO_AGENT`), plus `--workspace <slug>` when it works in several. Nothing paired and nothing named: the command refuses. Several paired and none named: it refuses and lists them.
 - `cheto user <noun> <verb> …` is **the person** (`cheto login`), attributed to them. Takes `--workspace <slug>` or `CHETO_WORKSPACE`. Never `--agent`.
 - Only the person creates agents, memberships, pairing codes and tokens. An agent credential trying is a 403, by design.
 

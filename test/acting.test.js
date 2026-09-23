@@ -35,6 +35,7 @@ const ME = {
     participants: [
         { type: 'user', id: 3, slug: 'ana', name: 'Ana' },
         { type: 'agent', id: 9, slug: 'magui', name: 'Magui' },
+        { type: 'user', id: 4, slug: 'lucía', name: 'Lucía Gómez' },
     ],
     areas: [{ id: 16, slug: 'marketing', name: 'Marketing', statuses: [] }],
 };
@@ -132,12 +133,12 @@ describe('choosing the agent', () => {
 
     it('takes CHETO_AGENT the same way as --agent', async () => {
         await signIn();
-        process.env.CHETO_AGENT = '@magui';
+        process.env.CHETO_AGENT = 'magui.b2c4@cheto';
 
         const session = await requireSession([]);
 
         assert.equal(session.via, 'user');
-        assert.equal(session.headers['X-Cheto-Agent'], '@magui');
+        assert.equal(session.headers['X-Cheto-Agent'], 'magui.b2c4@cheto');
         assert.equal(session.headers['X-Cheto-Workspace'], undefined);
     });
 
@@ -147,8 +148,19 @@ describe('choosing the agent', () => {
         assert.equal(await requireSession([]), null);
         assert.equal(await taskComment(['12', 'hello']), 1);
         assert.equal(calls.length, 0);
-        assert.match(output.join('\n'), /--agent <address\|handle>/);
+        assert.match(output.join('\n'), /--agent <address>/);
         assert.match(output.join('\n'), /cheto agent list/);
+    });
+
+    it('through the login, a bare handle is refused before anything is sent', async () => {
+        await signIn();
+
+        for (const handle of ['magui', '@magui']) {
+            assert.equal(await taskComment(['12', 'hi', '--agent', handle]), 1);
+        }
+
+        assert.equal(calls.length, 0);
+        assert.match(output.join('\n'), /full address/);
     });
 
     it('refuses with nothing paired and nobody signed in, even when an agent is named', async () => {
@@ -177,7 +189,7 @@ describe('a 401 forgets the credential that was used, and nothing else does', ()
         await pair('qa');
         answer = () => ({ status: 401, body: { message: 'Unauthenticated.' } });
 
-        assert.equal(await taskComment(['12', 'hi', '--agent', 'magui']), 1);
+        assert.equal(await taskComment(['12', 'hi', '--agent', 'magui.b2c4@cheto']), 1);
 
         assert.equal(secrets()[`${CHETO}#user`], undefined);
         assert.equal(secrets()[`${CHETO}#agent:qa`], 'cheto_ak_qa');
@@ -203,7 +215,7 @@ describe('a 401 forgets the credential that was used, and nothing else does', ()
             await pair('rocky');
             answer = () => ({ status, body: { message: error, error } });
 
-            assert.equal(await taskComment(['12', 'hi', '--agent', 'magui']), 1);
+            assert.equal(await taskComment(['12', 'hi', '--agent', 'magui.b2c4@cheto']), 1);
             assert.equal(await taskComment(['12', 'hi', '--agent', 'rocky']), 1);
 
             assert.equal(secrets()[`${CHETO}#user`], 'cheto_ut_person');
@@ -303,6 +315,12 @@ describe('agent commands send what the MCP tools send', () => {
 
         assert.deepEqual([writes[0].method, writes[0].path], ['PATCH', '/api/v1/agent/tasks/12']);
         assert.deepEqual(writes[0].body, { assignee_type: 'agent', assignee_id: 9 });
+    });
+
+    it('task assign finds a handle with an accent when it is typed without one', async () => {
+        const { writes } = await asAgent(agent.taskAssign, ['12', '@lucia']);
+
+        assert.deepEqual(writes[0].body, { assignee_type: 'user', assignee_id: 4 });
     });
 
     it('task assign none unassigns', async () => {

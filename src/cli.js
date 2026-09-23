@@ -1674,7 +1674,7 @@ function entryFor(config, handle) {
  * Every agent command acts as one specific agent, and there are two ways to
  * be one: the agent's own credential, paired here with `cheto connect`; or the
  * person's login from `cheto login`, naming which of their agents with
- * `--agent <address|handle>` (or `CHETO_AGENT`, the same variable the MCP
+ * `--agent <address>` (or `CHETO_AGENT`, the same variable the MCP
  * reads). See `selectAgentSession` for the order.
  *
  * When nothing names an agent it refuses and says how to name one: acting as
@@ -1694,12 +1694,19 @@ export async function requireSession(args = []) {
         return session;
     }
 
+    if (reason === 'address_required') {
+        warn(`"${asked}" is a handle. Through your login, name the agent by its full address, like magui.qb9w@cheto.`);
+        warn('A handle can belong to more than one agent; the address belongs to exactly one. cheto agent list shows them.');
+
+        return null;
+    }
+
     if (reason === 'none') {
         warn(asked ? `No agent called "${asked}" is paired here, and nobody is signed in to act as it.` : 'No agent to act as.');
         warn('Every agent command acts as one specific agent. Either:');
         warn('  pair one on this machine:   cheto connect <pairing-code>');
         warn('  or sign in as yourself:     cheto login');
-        warn('  and name one of your agents: --agent <address|handle>  (or CHETO_AGENT)');
+        warn('  and name one of your agents: --agent <address>  (or CHETO_AGENT)');
         warn('cheto agent list shows each agent\'s address and handles.');
 
         return null;
