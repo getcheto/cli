@@ -213,6 +213,11 @@ export class ChetoApi {
         return this.request(`/tasks/${taskId}/comments`, { method: 'POST', body: { body }, idempotencyKey });
     }
 
+    /** Change a comment its author wrote. */
+    editComment(taskId, commentId, body) {
+        return this.request(`/tasks/${taskId}/comments/${commentId}`, { method: 'PATCH', body: { body } });
+    }
+
     /**
      * Write something down.
      *
@@ -478,6 +483,11 @@ export class ChetoUserApi {
 
     comment(taskId, body, idempotencyKey) {
         return this.request(`/tasks/${taskId}/comments`, { method: 'POST', body: { body }, idempotencyKey });
+    }
+
+    /** Change a comment its author wrote. */
+    editComment(taskId, commentId, body) {
+        return this.request(`/tasks/${taskId}/comments/${commentId}`, { method: 'PATCH', body: { body } });
     }
 
     reviews(params) {

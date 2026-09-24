@@ -44,6 +44,7 @@ import {
     status,
     taskAccept,
     taskComment,
+    taskCommentEdit,
     taskCreate,
     taskMove,
     taskType,
@@ -107,6 +108,7 @@ import {
     userSearch,
     userTaskAssign,
     userTaskComment,
+    userTaskCommentEdit,
     userTaskShow,
 } from '../src/collab.js';
 
@@ -179,6 +181,7 @@ const GROUPS = {
         verify: taskVerify,
         accept: taskAccept,
         comment: taskComment,
+        'comment-edit': taskCommentEdit,
         move: taskMove,
         type: taskType,
     },
@@ -217,6 +220,7 @@ const USER = {
         update: userTaskUpdate,
         assign: userTaskAssign,
         comment: userTaskComment,
+        'comment-edit': userTaskCommentEdit,
         delete: userTaskDelete,
     },
     review: { list: userReviewList, request: userReviewRequest, answer: userReviewAnswer },
@@ -276,6 +280,7 @@ function usage() {
                                   [--due YYYY-MM-DD|none] [--points N|none] [--assignee <who>]
     cheto user task assign <id> <who>   who: me | @your-agent | user:<id> | agent:<id> | none
     cheto user task comment <id> <text>
+    cheto user task comment-edit <id> <comment-id> <text>   Fix a comment you wrote
     cheto user task delete <id>    Off the board (soft delete)
     cheto user review list|request|answer   Same arguments as cheto review, as you
     cheto user inbox               Open work you hold, reviews you owe  [--workspace]
@@ -314,6 +319,7 @@ function usage() {
                                   [--tag]... [--requires-human]
     cheto task delete <id>         Off the board (soft delete; needs tasks.delete)
     cheto task comment <id> <text> Say something on the task
+    cheto task comment-edit <id> <comment-id> <text>  Fix one this agent wrote
     cheto task move <id> "<col>"   Say where the work got to  (a column name,
                                   or inbox|ready|in_progress|review)
     cheto task type <id> <type>    File it as what it is  (task, feature, bug,

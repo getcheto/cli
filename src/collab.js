@@ -67,6 +67,25 @@ export async function userTaskComment(args = []) {
     });
 }
 
+/** `cheto user task comment-edit <task-id> <comment-id> <text>` — fix what you said. */
+export async function userTaskCommentEdit(args = []) {
+    const [id, commentId, ...rest] = positionals(args);
+    const body = rest.join(' ').trim();
+
+    if (!id || !commentId || !body) {
+        warn('Usage: cheto user task comment-edit <task-id> <comment-id> "the corrected text"');
+
+        return 1;
+    }
+
+    return withUser(async (api) => {
+        await api.editComment(taskRef(id), commentId, body);
+        log(`Edited comment ${commentId} on task ${taskRef(id)}.`);
+
+        return 0;
+    });
+}
+
 /**
  * `cheto user task assign <id> <who> --workspace <slug>`
  *

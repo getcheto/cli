@@ -400,6 +400,35 @@ export async function taskComment(args = []) {
     }
 }
 
+/** `cheto task comment-edit <task-id> <comment-id> <text>` — fix what this agent said. */
+export async function taskCommentEdit(args = []) {
+    const [id, commentId, ...rest] = positionals(args);
+    const body = rest.join(' ').trim();
+
+    if (!id || !commentId || !body) {
+        warn('Usage: cheto task comment-edit <task-id> <comment-id> "the corrected text"');
+
+        return 1;
+    }
+
+    const session = await requireSession(args);
+
+    if (!session) {
+        return 1;
+    }
+
+    try {
+        await apiFor(session).editComment(id, commentId, body);
+        log(`Edited comment ${commentId} on task ${id}.`);
+
+        return 0;
+    } catch (error) {
+        warn(error instanceof ChetoError ? error.message : String(error));
+
+        return 1;
+    }
+}
+
 const TASK_TYPES = ['task', 'feature', 'bug', 'chore', 'epic', 'idea'];
 
 /**

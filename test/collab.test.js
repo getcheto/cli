@@ -21,7 +21,7 @@ delete process.env.CHETO_AGENT;
 delete process.env.CHETO_WORKSPACE;
 
 const { rememberAgent, saveCredential, saveSession, saveUserCredential } = await import('../src/credentials.js');
-const { status } = await import('../src/cli.js');
+const { status, taskCommentEdit } = await import('../src/cli.js');
 const agent = await import('../src/agent-commands.js');
 const work = await import('../src/work.js');
 const collab = await import('../src/collab.js');
@@ -158,6 +158,11 @@ describe('an agent, new verbs', () => {
         assert.equal(await agent.taskUpdate(['12', '--points', 'abc', '--agent', 'rocky']), 1);
         assert.equal(calls.filter((call) => call.method === 'PATCH').length, calls.slice(0, before).filter((call) => call.method === 'PATCH').length);
         assert.match(output.join('\n'), /whole number/);
+    });
+
+    it('task comment-edit patches the comment on its task', async () => {
+        assert.equal(await taskCommentEdit(['12', '40', 'corregido', '--agent', 'rocky']), 0);
+        assert.deepEqual([last().method, last().pathname, last().body], ['PATCH', '/api/v1/agent/tasks/12/comments/40', { body: 'corregido' }]);
     });
 
     it('memory update, with --key none clearing the key', async () => {
