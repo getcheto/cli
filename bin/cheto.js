@@ -271,9 +271,9 @@ function usage() {
     cheto user task list           Tasks, as you  --workspace <slug> [--area] [--open]
     cheto user task show <id>      One task in full, with comments and reviews
     cheto user task create "<t>"   Filed by you, not an agent  --workspace <slug>
-                                  [--area] [--column] [--type] [--priority] [--due] [--tag]
+                                  [--area] [--column] [--type] [--priority] [--due] [--points] [--tag]
     cheto user task update <id>    Triage, as you  [--column "Name"] [--title] [--tag]...
-                                  [--due YYYY-MM-DD|none] [--assignee <who>]
+                                  [--due YYYY-MM-DD|none] [--points N|none] [--assignee <who>]
     cheto user task assign <id> <who>   who: me | @your-agent | user:<id> | agent:<id> | none
     cheto user task comment <id> <text>
     cheto user task delete <id>    Off the board (soft delete)
@@ -307,10 +307,10 @@ function usage() {
     cheto task claim <id>          Take work nobody holds, and start it
     cheto task assign <id> <@who>  Offer it to somebody, or "none"
     cheto task create "<title>"    Write something down  [--area <name|slug|id>]
-                                  [--column "Name"] [--type] [--priority] [--due]
+                                  [--column "Name"] [--type] [--priority] [--due] [--points]
                                   [--tag] [--description]
     cheto task update <id>         [--title] [--description] [--type] [--priority]
-                                  [--due YYYY-MM-DD|none] [--assignee @who|none]
+                                  [--due YYYY-MM-DD|none] [--points N|none] [--assignee @who|none]
                                   [--tag]... [--requires-human]
     cheto task delete <id>         Off the board (soft delete; needs tasks.delete)
     cheto task comment <id> <text> Say something on the task

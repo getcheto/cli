@@ -475,6 +475,12 @@ export function describing(args) {
         body.due_on = ['none', 'null'].includes(due.toLowerCase()) ? null : due;
     }
 
+    const points = flag(args, '--points');
+
+    if (points !== null) {
+        body.story_points = ['none', 'null'].includes(points.toLowerCase()) ? null : Number(points);
+    }
+
     const tags = flags(args, '--tag');
 
     if (tags.length > 0) {

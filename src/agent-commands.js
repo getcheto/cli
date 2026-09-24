@@ -147,6 +147,10 @@ export function printTask(task, args = []) {
     log(`  Type:        ${task.type?.value ?? task.type ?? 'task'}   Priority: ${task.priority?.value ?? task.priority ?? 'normal'}`);
     log(`  Assignee:    ${task.assignee ? `${task.assignee.name} (${task.assignee.type})` : 'nobody'}${task.accepted_at ? '' : task.assignee ? '  · not accepted yet' : ''}`);
 
+    if (task.story_points !== null && task.story_points !== undefined) {
+        log(`  Points:      ${task.story_points}`);
+    }
+
     if (task.due_on) {
         log(`  Due:         ${task.due_on}`);
     }
@@ -256,6 +260,12 @@ export async function taskUpdate(args = []) {
 
     if (due !== null) {
         body.due_on = ['none', 'null'].includes(due.toLowerCase()) ? null : due;
+    }
+
+    const points = flag(args, '--points');
+
+    if (points !== null) {
+        body.story_points = ['none', 'null'].includes(points.toLowerCase()) ? null : Number(points);
     }
 
     const tags = flags(args, '--tag');

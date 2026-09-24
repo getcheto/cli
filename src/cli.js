@@ -669,6 +669,7 @@ export async function taskCreate(args = []) {
             ...optional('type', flag(args, '--type')),
             ...optional('priority', flag(args, '--priority')),
             ...optional('due_on', flag(args, '--due')),
+            ...(flag(args, '--points') !== null ? { story_points: Number(flag(args, '--points')) } : {}),
             ...optional('status', flag(args, '--status')),
         };
 

@@ -144,6 +144,14 @@ describe('an agent, new verbs', () => {
         assert.deepEqual(last().body, { assignee_type: null, assignee_id: null });
     });
 
+    it('task update --points sizes the work, and --points none clears it', async () => {
+        assert.equal(await agent.taskUpdate(['12', '--points', '5', '--agent', 'rocky']), 0);
+        assert.deepEqual(last().body, { story_points: 5 });
+
+        assert.equal(await agent.taskUpdate(['12', '--points', 'none', '--agent', 'rocky']), 0);
+        assert.deepEqual(last().body, { story_points: null });
+    });
+
     it('memory update, with --key none clearing the key', async () => {
         assert.equal(await agent.memoryUpdate(['4', '--body', 'new', '--key', 'none', '--agent', 'rocky']), 0);
         assert.deepEqual(shape(last()), ['PATCH', '/api/v1/agent/memory/4', { body: 'new', key: null }]);
