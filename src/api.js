@@ -215,7 +215,7 @@ export class ChetoApi {
 
     /** Change a comment its author wrote. */
     editComment(taskId, commentId, body) {
-        return this.request(`/tasks/${taskId}/comments/${commentId}`, { method: 'PATCH', body: { body } });
+        return this.request(`/tasks/${taskId}/comments/${encodeURIComponent(String(commentId))}`, { method: 'PATCH', body: { body } });
     }
 
     /**
@@ -487,7 +487,7 @@ export class ChetoUserApi {
 
     /** Change a comment its author wrote. */
     editComment(taskId, commentId, body) {
-        return this.request(`/tasks/${taskId}/comments/${commentId}`, { method: 'PATCH', body: { body } });
+        return this.request(`/tasks/${taskId}/comments/${encodeURIComponent(String(commentId))}`, { method: 'PATCH', body: { body } });
     }
 
     reviews(params) {
