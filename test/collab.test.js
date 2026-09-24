@@ -152,6 +152,14 @@ describe('an agent, new verbs', () => {
         assert.deepEqual(last().body, { story_points: null });
     });
 
+    it('task update --points with something that is not a number changes nothing', async () => {
+        const before = calls.length;
+
+        assert.equal(await agent.taskUpdate(['12', '--points', 'abc', '--agent', 'rocky']), 1);
+        assert.equal(calls.filter((call) => call.method === 'PATCH').length, calls.slice(0, before).filter((call) => call.method === 'PATCH').length);
+        assert.match(output.join('\n'), /whole number/);
+    });
+
     it('memory update, with --key none clearing the key', async () => {
         assert.equal(await agent.memoryUpdate(['4', '--body', 'new', '--key', 'none', '--agent', 'rocky']), 0);
         assert.deepEqual(shape(last()), ['PATCH', '/api/v1/agent/memory/4', { body: 'new', key: null }]);

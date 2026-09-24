@@ -16,6 +16,7 @@
 import { ChetoError } from './api.js';
 import { apiFor } from './clients.js';
 import { flag, flags, positionals, requireSession } from './cli.js';
+import { pointsFrom } from './points.js';
 
 const log = (...args) => console.log(...args);
 const warn = (...args) => console.error(...args);
@@ -265,7 +266,13 @@ export async function taskUpdate(args = []) {
     const points = flag(args, '--points');
 
     if (points !== null) {
-        body.story_points = ['none', 'null'].includes(points.toLowerCase()) ? null : Number(points);
+        try {
+            body.story_points = pointsFrom(points);
+        } catch (error) {
+            warn(error.message);
+
+            return 1;
+        }
     }
 
     const tags = flags(args, '--tag');

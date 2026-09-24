@@ -25,6 +25,7 @@ import { apiFor } from './clients.js';
 import { agentFlag, flag, flags, positionals, requireSession } from './cli.js';
 import { listAgentSessions, loadUserSession } from './credentials.js';
 import { requireUser } from './human.js';
+import { pointsFrom } from './points.js';
 
 const log = (...args) => console.log(...args);
 const warn = (...args) => console.error(...args);
@@ -296,7 +297,20 @@ export async function userTaskCreate(args = []) {
 /** `cheto user task update <id> --workspace <slug> [--column "Name"] [--title] …` — triage, as yourself. */
 export async function userTaskUpdate(args = []) {
     const [id] = positionals(args);
-    const body = { ...describing(args), ...optional('status', flag(args, '--status')) };
+    let body;
+
+    try {
+        body = { ...describing(args), ...optional('status', flag(args, '--status')) };
+    } catch (error) {
+        if (!(error instanceof ChetoError)) {
+            throw error;
+        }
+
+        warn(error.message);
+
+        return 1;
+    }
+
     const column = flag(args, '--column');
     const assignee = flag(args, '--assignee');
 
@@ -478,7 +492,7 @@ export function describing(args) {
     const points = flag(args, '--points');
 
     if (points !== null) {
-        body.story_points = ['none', 'null'].includes(points.toLowerCase()) ? null : Number(points);
+        body.story_points = pointsFrom(points);
     }
 
     const tags = flags(args, '--tag');

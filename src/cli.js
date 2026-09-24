@@ -28,6 +28,7 @@ import { loadLedger, saveLedger } from './ledger.js';
 import { describeSchedule } from './schedule.js';
 import { DEFAULT_MODE, chatKey, decide, fingerprintOf, reviewKey, toldKey } from './policy.js';
 import { buildPrompt, idempotencyKeyFor } from './prompt.js';
+import { pointsFrom } from './points.js';
 
 const log = (...args) => console.log(...args);
 const warn = (...args) => console.error(...args);
@@ -669,7 +670,7 @@ export async function taskCreate(args = []) {
             ...optional('type', flag(args, '--type')),
             ...optional('priority', flag(args, '--priority')),
             ...optional('due_on', flag(args, '--due')),
-            ...(flag(args, '--points') !== null ? { story_points: Number(flag(args, '--points')) } : {}),
+            ...(flag(args, '--points') !== null ? { story_points: pointsFrom(flag(args, '--points')) } : {}),
             ...optional('status', flag(args, '--status')),
         };
 
