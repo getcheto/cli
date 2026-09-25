@@ -328,7 +328,9 @@ export async function userTaskUpdate(args = []) {
 
         if (column) {
             const workspace = workspaceOf(args);
-            const placement = await columnIn(api, workspace, flag(args, '--area'), column);
+            const area = flag(args, '--area');
+            const home = area ? null : ((await api.task(task))?.data?.work_area_id ?? null);
+            const placement = await columnIn(api, workspace, area, column, home);
 
             // The column wins over a status: two names for one move is two
             // chances to disagree.
@@ -616,21 +618,27 @@ async function placementIn(api, workspace, area, column) {
 }
 
 /**
- * A column named for a move, across every board unless `--area` narrows it.
- * An ambiguous name fails with the boards that matched, rather than picking one.
+ * A column named for a move. `--area` narrows it to one board; without it the
+ * name is read first on `home`, the board the task already sits on — "Hecho" is
+ * on every board, and the card's own is the one meant — and only then across
+ * every board. There an ambiguous name fails with the boards that matched,
+ * rather than picking one.
  */
-async function columnIn(api, workspace, area, column) {
+async function columnIn(api, workspace, area, column, home = null) {
     if (area) {
         return { work_area_status_id: columnOf(await boardIn(api, workspace, area), column).id };
     }
 
     const { data: areas = [] } = await api.areas(new URLSearchParams({ workspace }));
     const wanted = String(column).trim().toLowerCase();
-    const matches = areas.flatMap((board) =>
-        (board.statuses ?? [])
-            .filter((one) => [one.id, one.name, one.key].some((field) => String(field ?? '').toLowerCase() === wanted))
-            .map((one) => ({ board, column: one })),
-    );
+    const named = (one) => [one.id, one.name, one.key].some((field) => String(field ?? '').toLowerCase() === wanted);
+    const own = home === null ? undefined : (areas.find((board) => String(board.id) === String(home))?.statuses ?? []).find(named);
+
+    if (own) {
+        return { work_area_status_id: own.id };
+    }
+
+    const matches = areas.flatMap((board) => (board.statuses ?? []).filter(named).map((one) => ({ board, column: one })));
 
     if (matches.length === 0) {
         throw new ChetoError(`No column called "${column}" in ${workspace}. cheto area list shows them.`);

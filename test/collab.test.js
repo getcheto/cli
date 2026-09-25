@@ -280,6 +280,54 @@ describe('the person, the rest of the work', () => {
         assert.deepEqual(shape(last()), ['PATCH', '/api/v1/cli/tasks/12', { due_on: null, assignee_type: 'agent', assignee_id: 9 }]);
     });
 
+    describe('user task update --column without --area', () => {
+        // Three boards with a column called "Hecho", as a new workspace has.
+        const BOARDS = {
+            data: [
+                { id: 1, slug: 'general', name: 'General', statuses: [{ id: 11, name: 'Hecho', key: 'done' }] },
+                { id: 2, slug: 'diseno', name: 'Diseño', statuses: [{ id: 21, name: 'Hecho', key: 'done' }, { id: 22, name: 'Bocetos', key: 'inbox' }] },
+                { id: 3, slug: 'lanzamiento', name: 'Lanzamiento', statuses: [{ id: 31, name: 'Hecho', key: 'done' }] },
+            ],
+        };
+
+        const onBoard = (workArea) => (call) => {
+            if (call.pathname === '/api/v1/cli/areas') return { body: BOARDS };
+            if (call.method === 'GET' && call.pathname === '/api/v1/cli/tasks/12') return { body: { data: { id: 12, key: 'T-12', work_area_id: workArea } } };
+
+            return defaultAnswer(call);
+        };
+
+        it('reads a shared name on the board the task sits on', async () => {
+            answer = onBoard(2);
+
+            assert.equal(await work.userTaskUpdate(['12', '--workspace', 'demo', '--column', 'Hecho']), 0);
+            assert.deepEqual(shape(last()), ['PATCH', '/api/v1/cli/tasks/12', { work_area_status_id: 21 }]);
+        });
+
+        it('still finds a column only another board has', async () => {
+            answer = onBoard(1);
+
+            assert.equal(await work.userTaskUpdate(['12', '--workspace', 'demo', '--column', 'Bocetos']), 0);
+            assert.deepEqual(shape(last()), ['PATCH', '/api/v1/cli/tasks/12', { work_area_status_id: 22 }]);
+        });
+
+        it('refuses a shared name for a task on no board, naming the boards', async () => {
+            answer = onBoard(null);
+
+            assert.equal(await work.userTaskUpdate(['12', '--workspace', 'demo', '--column', 'Hecho']), 1);
+            assert.equal(calls.filter((call) => call.method === 'PATCH').length, 0);
+            assert.match(output.join('\n'), /General, Diseño, Lanzamiento\. Say which with --area/);
+        });
+
+        it('with --area does not need to read the task', async () => {
+            answer = onBoard(2);
+
+            assert.equal(await work.userTaskUpdate(['12', '--workspace', 'demo', '--column', 'Hecho', '--area', 'lanzamiento']), 0);
+            assert.equal(calls.some((call) => call.method === 'GET' && call.pathname === '/api/v1/cli/tasks/12'), false);
+            assert.deepEqual(last().body, { work_area_status_id: 31 });
+        });
+    });
+
     it('user review list, request, answer', async () => {
         assert.equal(await collab.userReviewList(['--workspace', 'demo']), 0);
         assert.deepEqual(shape(last()), ['GET', '/api/v1/cli/reviews?workspace=demo', undefined]);
